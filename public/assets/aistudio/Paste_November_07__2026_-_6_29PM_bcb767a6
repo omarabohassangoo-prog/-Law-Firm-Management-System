@@ -1,0 +1,1480 @@
+{
+  "shared_pages_complete": {
+    "metadata": {
+      "title": "الصفحات المشتركة — Frontend + Backend + Database",
+      "version": "1.0.0",
+      "scope": "frontend + backend + database + isolation",
+      "pages_count": 10,
+      "endpoints_count": 42,
+      "tables_used": ["Case", "Client", "Document", "Invoice", "Appointment", "Task", "User", "Notification", "ChatRoom", "ChatMember", "ChatMessage", "FirmSettings", "Service"],
+      "target": ["AI Studio", "فريق التطوير"],
+      "critical_note": "كل صفحة تحتوي على data isolation صارم حسب الدور"
+    },
+
+    "universal_patterns": {
+      "description": "الأنماط المشتركة بين كل الصفحات",
+      
+      "data_table_pattern": {
+        "component": "DataTable.tsx",
+        "features": {
+          "search": { "debounce_ms": 300, "min_chars": 2, "placeholder": "بحث..." },
+          "sort": { "client_or_server": "server", "indicator": "arrow up/down", "default": "createdAt:desc" },
+          "pagination": { "page_sizes": [10, 25, 50, 100], "default": 10, "show_total": true },
+          "filters": { "location": "top bar", "persist": "URL query params" },
+          "bulk_actions": { "optional": true, "confirmation_required": true },
+          "row_actions": { "icons_or_dropdown": "icons on desktop, dropdown on mobile" }
+        },
+        "states": {
+          "loading": "skeleton rows (shimmer)",
+          "empty": "icon + message + CTA button",
+          "error": "retry button + error message",
+          "populated": "data rows + actions"
+        },
+        "responsive": {
+          "mobile": "horizontal scroll + sticky first column",
+          "tablet": "hide less important columns",
+          "desktop": "full table"
+        }
+      },
+
+      "form_pattern": {
+        "component": "Form + FormFields",
+        "validation": {
+          "trigger": "onBlur + onSubmit",
+          "inline_errors": true,
+          "aria": "aria-invalid + aria-describedby"
+        },
+        "submission": {
+          "optimistic_updates": false,
+          "loading_state": "button spinner + disabled inputs",
+          "success": "toast + close modal + refresh list",
+          "error": "inline errors + toast"
+        },
+        "cancel": "confirmation if dirty"
+      },
+
+      "isolation_enforcement": {
+        "frontend_guard": "ProtectedRoute with allowedRoles",
+        "backend_middleware": "authenticate + requireRole/requirePermission",
+        "query_filter": "WHERE role-based condition",
+        "data_hiding": "return 404 for unauthorized (not 403) to prevent enumeration",
+        "audit": "every write action logged"
+      },
+
+      "common_endpoints_pattern": {
+        "list": "GET /api/{resource}?page=&pageSize=&search=&sortBy=&sortOrder=&filters...",
+        "get": "GET /api/{resource}/:id",
+        "create": "POST /api/{resource}",
+        "update": "PUT /api/{resource}/:id",
+        "delete": "DELETE /api/{resource}/:id"
+      }
+    },
+
+    "pages": {
+      "1_CasesPage": {
+        "id": "cases",
+        "route": "/cases",
+        "purpose": "إدارة القضايا القانونية",
+        "roles": {
+          "admin": "full_access",
+          "lawyer": "own_cases_only (lawyerId = self)",
+          "legal_assistant": "assigned_cases_only",
+          "secretary": "read_only",
+          "accountant": "no_access",
+          "client": "own_cases_only (client.userId = self)"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/CasesPage.tsx",
+          "route": "/cases",
+          
+          "page_structure": {
+            "header": {
+              "title": "القضايا",
+              "subtitle": "إدارة ومتابعة القضايا",
+              "actions": [
+                { "text": "قضية جديدة", "icon": "plus", "action": "openCaseFormModal()", "roles": ["admin", "lawyer"] },
+                { "text": "تصدير", "icon": "download", "action": "exportCases('excel')", "roles": ["admin", "lawyer"] }
+              ]
+            },
+            "filters_bar": {
+              "search": { "placeholder": "بحث برقم القضية أو العنوان...", "fields": ["caseNumber", "title"] },
+              "status": { "type": "select", "options": ["all", "open", "pending", "closed", "archived"] },
+              "lawyer": { "type": "async_select", "endpoint": "/api/users?role=lawyer", "roles": ["admin", "secretary"] },
+              "client": { "type": "async_select", "endpoint": "/api/clients?search=", "roles": ["admin", "secretary"] },
+              "date_range": { "type": "date_range", "fields": ["openedAt"] }
+            },
+            "table": {
+              "columns": [
+                { "key": "caseNumber", "label": "رقم القضية", "sortable": true, "width": "140px", "render": "mono_badge" },
+                { "key": "title", "label": "العنوان", "sortable": true, "truncate": 60 },
+                { "key": "client.name", "label": "العميل", "sortable": false },
+                { "key": "lawyer.name", "label": "المحامي", "sortable": false, "hidden_mobile": true, "roles": ["admin", "secretary"] },
+                { "key": "status", "label": "الحالة", "sortable": true, "render": "colored_badge", "colors": { "open": "green", "pending": "amber", "closed": "gray", "archived": "slate" } },
+                { "key": "court", "label": "المحكمة", "hidden_mobile": true },
+                { "key": "openedAt", "label": "تاريخ الفتح", "sortable": true, "render": "date", "hidden_mobile": true }
+              ],
+              "row_actions": [
+                { "icon": "eye", "tooltip": "عرض", "action": "navigate /cases/:id", "roles": ["*"] },
+                { "icon": "edit", "tooltip": "تعديل", "action": "openCaseFormModal(id)", "roles": ["admin", "lawyer"] },
+                { "icon": "trash", "tooltip": "حذف", "action": "confirmDelete(id)", "roles": ["admin"] }
+              ],
+              "row_click": "navigate(/cases/:id)",
+              "bulk_select": { "enabled": true, "roles": ["admin"], "actions": ["delete"] }
+            }
+          },
+
+          "case_form": {
+            "type": "modal",
+            "size": "lg",
+            "title": { "create": "قضية جديدة", "edit": "تعديل القضية" },
+            "fields": [
+              {
+                "name": "title",
+                "type": "text",
+                "label": "عنوان القضية",
+                "required": true,
+                "max_length": 255,
+                "autofocus": true
+              },
+              {
+                "name": "description",
+                "type": "textarea",
+                "label": "وصف القضية",
+                "required": false,
+                "rows": 4,
+                "max_length": 2000
+              },
+              {
+                "name": "clientId",
+                "type": "async_select",
+                "label": "العميل",
+                "required": true,
+                "endpoint": "/api/clients?search=",
+                "label_field": "name",
+                "hint": "ابحث بالاسم أو البريد"
+              },
+              {
+                "name": "lawyerId",
+                "type": "async_select",
+                "label": "المحامي المسؤول",
+                "required": false,
+                "endpoint": "/api/users?role=lawyer",
+                "label_field": "name",
+                "roles": ["admin", "secretary"],
+                "default": "self (if lawyer role)"
+              },
+              {
+                "name": "court",
+                "type": "text",
+                "label": "المحكمة",
+                "required": false,
+                "max_length": 150
+              },
+              {
+                "name": "status",
+                "type": "select",
+                "label": "الحالة",
+                "required": true,
+                "options": [
+                  { "value": "open", "label": "مفتوحة" },
+                  { "value": "pending", "label": "قيد الانتظار" },
+                  { "value": "closed", "label": "مغلقة" },
+                  { "value": "archived", "label": "مؤرشفة" }
+                ],
+                "default": "open",
+                "hidden_on_create": true
+              }
+            ],
+            "validation": {
+              "clientId": "required + must exist",
+              "title": "required + min 3 chars",
+              "lawyerId": "if selected must be lawyer role"
+            }
+          },
+
+          "empty_state": {
+            "icon": "folder-open",
+            "title": "لا توجد قضايا",
+            "description": "ابدأ بإضافة أول قضية",
+            "action": { "text": "قضية جديدة", "roles": ["admin", "lawyer"] }
+          },
+
+          "loading_skeleton": {
+            "rows": 5,
+            "columns": 7
+          }
+        },
+
+        "backend": {
+          "module": "src/modules/cases",
+          "files": ["cases.routes.ts", "cases.controller.ts", "cases.service.ts", "cases.schema.ts"],
+
+          "endpoints": [
+            {
+              "method": "GET",
+              "path": "/api/cases",
+              "auth": "authenticate",
+              "permission": "cases.read",
+              "query": {
+                "page": "number (default 1)",
+                "pageSize": "number (default 10, max 100)",
+                "search": "string (optional)",
+                "status": "CaseStatus (optional)",
+                "lawyerId": "uuid (optional — admin only)",
+                "clientId": "uuid (optional — admin/secretary)",
+                "sortBy": "caseNumber|title|openedAt|status",
+                "sortOrder": "asc|desc"
+              },
+              "service_logic": [
+                "1. Extract { userId, role } from req.user",
+                "2. Build where clause based on role:",
+                "   - admin/secretary → no filter",
+                "   - lawyer → where.lawyerId = userId",
+                "   - legal_assistant → where.lawyerId IN (SELECT lawyerId FROM Task WHERE assigneeId = userId)",
+                "   - client → where.client.userId = userId",
+                "3. Add search filter (caseNumber ILIKE OR title ILIKE)",
+                "4. Add status filter if provided",
+                "5. Add lawyerId filter (admin only)",
+                "6. Prisma: findMany with include client.name, lawyer.name",
+                "7. Count total for pagination",
+                "8. Return { items, total, page, pageSize, totalPages }"
+              ],
+              "response": {
+                "status": 200,
+                "body": {
+                  "success": true,
+                  "data": {
+                    "items": [
+                      {
+                        "id": "uuid",
+                        "caseNumber": "CASE-2025-0001",
+                        "title": "قضية تجارية",
+                        "status": "open",
+                        "court": "المحكمة التجارية",
+                        "openedAt": "2025-01-01T00:00:00Z",
+                        "client": { "id": "uuid", "name": "شركة النور" },
+                        "lawyer": { "id": "uuid", "name": "أ. سعيد" }
+                      }
+                    ],
+                    "total": 42,
+                    "page": 1,
+                    "pageSize": 10,
+                    "totalPages": 5
+                  }
+                }
+              },
+              "isolation": {
+                "admin": "no filter",
+                "lawyer": "lawyerId = req.user.userId",
+                "legal_assistant": "lawyerId IN assigned",
+                "secretary": "read-only, no filter",
+                "client": "client.userId = req.user.userId"
+              }
+            },
+            {
+              "method": "GET",
+              "path": "/api/cases/:id",
+              "auth": "authenticate",
+              "permission": "cases.read",
+              "service_logic": [
+                "1. Find case with includes (client, lawyer, documents, invoices)",
+                "2. Check isolation: if lawyer role → case.lawyerId must === userId",
+                "3. If client role → case.client.userId must === userId",
+                "4. If not authorized → return 404 (not 403) to prevent enumeration",
+                "5. Return full case details"
+              ],
+              "response": { "status": 200, "body": { "success": true, "data": "{ ...case, ...includes }" } }
+            },
+            {
+              "method": "POST",
+              "path": "/api/cases",
+              "auth": "authenticate",
+              "permission": "cases.create",
+              "roles": ["admin", "lawyer"],
+              "body_schema": {
+                "type": "object",
+                "required": ["title", "clientId"],
+                "properties": {
+                  "title": { "type": "string", "minLength": 3, "maxLength": 255 },
+                  "description": { "type": "string", "maxLength": 2000 },
+                  "clientId": { "type": "string", "format": "uuid" },
+                  "lawyerId": { "type": "string", "format": "uuid", "nullable": true },
+                  "court": { "type": "string", "maxLength": 150 },
+                  "status": { "type": "string", "enum": ["open", "pending", "closed", "archived"], "default": "open" }
+                }
+              },
+              "service_logic": [
+                "1. Validate client exists",
+                "2. If lawyerId provided, validate user is lawyer",
+                "3. Auto-generate caseNumber: CASE-{YYYY}-{seq 4 digits}",
+                "4. If req.user.role === 'lawyer', force lawyerId = userId",
+                "5. Prisma: create case",
+                "6. Audit log: action='case.created', entity='Case', entityId=case.id",
+                "7. Create notifications for assigned lawyer + admin",
+                "8. Return created case"
+              ],
+              "response": { "status": 201, "body": { "success": true, "data": "{...case}", "message": "تم إنشاء القضية" } }
+            },
+            {
+              "method": "PUT",
+              "path": "/api/cases/:id",
+              "auth": "authenticate",
+              "permission": "cases.update",
+              "roles": ["admin", "lawyer"],
+              "isolation": "if lawyer → case.lawyerId must === userId",
+              "service_logic": [
+                "1. Find case + check isolation",
+                "2. If lawyer, cannot change lawyerId",
+                "3. Update allowed fields only",
+                "4. If status changed to 'closed' → set closedAt",
+                "5. Audit log: action='case.updated', metadata={ changed fields }",
+                "6. Return updated case"
+              ],
+              "response": { "status": 200, "body": { "success": true, "data": "{...case}", "message": "تم التحديث" } }
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/cases/:id",
+              "auth": "authenticate",
+              "roles": ["admin"],
+              "service_logic": [
+                "1. Find case",
+                "2. Delete associated documents? (soft delete or cascade)",
+                "3. Prisma: delete case",
+                "4. Audit log: action='case.deleted'",
+                "5. Return success"
+              ],
+              "response": { "status": 200, "body": { "success": true, "message": "تم الحذف" } }
+            }
+          ],
+
+          "service_queries": {
+            "generate_case_number": {
+              "logic": "SELECT COALESCE(MAX(CAST(SUBSTRING(caseNumber FROM 'CASE-\\d{4}-(\\d+)') AS INT)), 0) + 1 FROM Case WHERE caseNumber LIKE 'CASE-{year}-%'",
+              "note": "Race condition handled via DB unique constraint + retry"
+            },
+            "list_by_role": {
+              "admin": "SELECT * FROM Case",
+              "lawyer": "SELECT * FROM Case WHERE lawyerId = $userId",
+              "client": "SELECT c.* FROM Case c JOIN Client cl ON c.clientId = cl.id WHERE cl.userId = $userId"
+            }
+          }
+        },
+
+        "database": {
+          "tables": ["Case", "Client", "User", "Document", "Invoice", "AuditLog", "Notification"],
+          "queries": [
+            "SELECT * FROM Case WHERE [role-based-filter] AND [search] ORDER BY [sort] LIMIT $take OFFSET $skip",
+            "INSERT INTO Case (id, caseNumber, title, description, status, court, clientId, lawyerId, openedAt, createdAt, updatedAt) VALUES (...) RETURNING *",
+            "UPDATE Case SET title=$1, description=$2, status=$3, court=$4, lawyerId=$5, closedAt=$6, updatedAt=NOW() WHERE id=$7",
+            "DELETE FROM Case WHERE id=$1",
+            "INSERT INTO AuditLog (userId, action, entity, entityId, metadata, ipAddress, userAgent) VALUES (...)"
+          ],
+          "indexes_used": ["idx_case_caseNumber", "idx_case_status", "idx_case_clientId", "idx_case_lawyerId", "idx_case_openedAt"],
+          "unique_constraints": ["caseNumber"]
+        },
+
+        "isolation_tests": {
+          "total": 48,
+          "scenarios": [
+            { "role": "admin", "test": "sees all cases", "scenarios_count": 8 },
+            { "role": "lawyer", "test": "sees only own cases (lawyerId=self)", "scenarios_count": 12 },
+            { "role": "lawyer", "test": "cannot edit other's cases (404)", "scenarios_count": 4 },
+            { "role": "legal_assistant", "test": "sees only assigned", "scenarios_count": 6 },
+            { "role": "secretary", "test": "read-only, cannot edit", "scenarios_count": 4 },
+            { "role": "client", "test": "sees only own cases (client.userId=self)", "scenarios_count": 12 },
+            { "role": "client", "test": "cannot see other's cases (404)", "scenarios_count": 2 }
+          ]
+        }
+      },
+
+      "2_CaseDetailPage": {
+        "id": "case-detail",
+        "route": "/cases/:id",
+        "purpose": "عرض تفاصيل قضية + تبويبات مرتبطة",
+        "roles": "same as CasesPage (isolation enforced)",
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/CaseDetailPage.tsx",
+          
+          "layout": {
+            "header": {
+              "breadcrumb": "القضايا / {caseNumber}",
+              "title": "case.title",
+              "status_badge": "colored",
+              "case_number": "mono badge",
+              "actions": [
+                { "icon": "edit", "text": "تعديل", "roles": ["admin", "lawyer"] },
+                { "icon": "trash", "text": "حذف", "roles": ["admin"] }
+              ]
+            },
+            "info_grid": {
+              "columns": 2,
+              "items": [
+                { "label": "العميل", "value": "client.name", "link": "/clients/:id" },
+                { "label": "المحامي", "value": "lawyer.name" },
+                { "label": "المحكمة", "value": "court" },
+                { "label": "تاريخ الفتح", "value": "openedAt (formatted)" },
+                { "label": "تاريخ الإغلاق", "value": "closedAt (if exists)" },
+                { "label": "الوصف", "value": "description (full width)" }
+              ]
+            },
+            "tabs": [
+              { "key": "documents", "label": "المستندات", "icon": "file-text", "count": "documents.length", "endpoint": "GET /api/documents?caseId=:id" },
+              { "key": "invoices", "label": "الفواتير", "icon": "dollar-sign", "count": "invoices.length", "endpoint": "GET /api/invoices?caseId=:id" },
+              { "key": "appointments", "label": "المواعيد", "icon": "calendar", "endpoint": "GET /api/appointments?caseId=:id" },
+              { "key": "timeline", "label": "السجل الزمني", "icon": "activity", "endpoint": "GET /api/audit?entity=Case&entityId=:id" },
+              { "key": "chat", "label": "محادثة", "icon": "message-circle", "action": "open/create case chat room" }
+            ]
+          },
+
+          "tabs_content": {
+            "documents": {
+              "component": "compact documents list",
+              "actions": ["upload", "download", "delete"],
+              "empty": "لا مستندات — رفع مستند"
+            },
+            "invoices": {
+              "component": "compact invoices table",
+              "columns": ["number", "total", "status", "dueDate"],
+              "actions": ["view", "mark_paid"]
+            },
+            "appointments": {
+              "component": "timeline view",
+              "actions": ["schedule", "confirm", "cancel"]
+            },
+            "timeline": {
+              "component": "vertical timeline",
+              "shows": "all audit log entries for this case",
+              "item": { "action": "string", "user": "name", "time": "relative", "metadata": "expandable" }
+            },
+            "chat": {
+              "action": "Find or create ChatRoom with caseId = this case, type='group', members = client + lawyer + secretary",
+              "navigate": "/chat?roomId={id}"
+            }
+          }
+        },
+
+        "backend": {
+          "endpoints": [
+            "GET /api/cases/:id (already exists)",
+            "GET /api/documents?caseId=:id",
+            "GET /api/invoices?caseId=:id",
+            "GET /api/appointments?caseId=:id",
+            "GET /api/audit?entity=Case&entityId=:id (admin only)",
+            "POST /api/chat/rooms/case/:caseId (find or create case chat)"
+          ]
+        }
+      },
+
+      "3_ClientsPage": {
+        "id": "clients",
+        "route": "/clients",
+        "purpose": "إدارة العملاء",
+        "roles": {
+          "admin": "full_access",
+          "secretary": "full_access",
+          "lawyer": "read_only (own cases' clients)",
+          "client": "no_access"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/ClientsPage.tsx",
+          
+          "table": {
+            "columns": [
+              { "key": "name", "label": "الاسم", "sortable": true },
+              { "key": "email", "label": "البريد", "sortable": true },
+              { "key": "phone", "label": "الهاتف", "hidden_mobile": true },
+              { "key": "type", "label": "النوع", "render": "badge", "colors": { "individual": "blue", "company": "purple" } },
+              { "key": "casesCount", "label": "القضايا", "render": "count_badge" },
+              { "key": "createdAt", "label": "تاريخ الإضافة", "sortable": true, "render": "date", "hidden_mobile": true }
+            ],
+            "actions": [
+              { "icon": "eye", "roles": ["admin", "secretary", "lawyer"] },
+              { "icon": "edit", "roles": ["admin", "secretary"] },
+              { "icon": "trash", "roles": ["admin"] }
+            ]
+          },
+
+          "client_form": {
+            "fields": [
+              { "name": "name", "type": "text", "label": "الاسم", "required": true, "min_length": 2 },
+              { "name": "email", "type": "email", "label": "البريد الإلكتروني", "required": true, "unique_check": true },
+              { "name": "phone", "type": "tel", "label": "الهاتف", "required": true, "pattern": "^\\+?966[0-9]{9}$" },
+              { "name": "type", "type": "select", "label": "النوع", "required": true, "options": [
+                { "value": "individual", "label": "فرد" },
+                { "value": "company", "label": "شركة" }
+              ]},
+              { "name": "companyName", "type": "text", "label": "اسم الشركة", "required": "if type=company" },
+              { "name": "address", "type": "text", "label": "العنوان", "required": false },
+              { "name": "notes", "type": "textarea", "label": "ملاحظات", "required": false }
+            ]
+          }
+        },
+
+        "backend": {
+          "module": "src/modules/clients",
+          "endpoints": [
+            {
+              "method": "GET",
+              "path": "/api/clients",
+              "auth": "authenticate",
+              "permission": "clients.read",
+              "isolation": {
+                "admin": "no filter",
+                "secretary": "no filter",
+                "lawyer": "WHERE id IN (SELECT DISTINCT clientId FROM Case WHERE lawyerId = self)",
+                "client": "403 FORBIDDEN"
+              }
+            },
+            {
+              "method": "POST",
+              "path": "/api/clients",
+              "roles": ["admin", "secretary"],
+              "body_schema": {
+                "required": ["name", "email", "phone", "type"],
+                "properties": {
+                  "name": { "minLength": 2 },
+                  "email": { "format": "email" },
+                  "phone": { "pattern": "^\\+?966[0-9]{9}$" },
+                  "type": { "enum": ["individual", "company"] },
+                  "companyName": { "type": "string", "nullable": true },
+                  "address": { "type": "string", "nullable": true },
+                  "notes": { "type": "string", "nullable": true }
+                }
+              }
+            },
+            { "method": "PUT", "path": "/api/clients/:id", "roles": ["admin", "secretary"] },
+            { "method": "DELETE", "path": "/api/clients/:id", "roles": ["admin"] }
+          ]
+        },
+
+        "isolation_tests": {
+          "total": 36,
+          "scenarios": [
+            { "role": "admin", "test": "full CRUD" },
+            { "role": "secretary", "test": "full CRUD" },
+            { "role": "lawyer", "test": "sees only own clients" },
+            { "role": "client", "test": "403 access" }
+          ]
+        }
+      },
+
+      "4_DocumentsPage": {
+        "id": "documents",
+        "route": "/documents",
+        "purpose": "إدارة المستندات والملفات",
+        "roles": {
+          "admin": "full_access",
+          "lawyer": "own_cases_docs",
+          "legal_assistant": "own_uploads + assigned_cases",
+          "secretary": "read_only",
+          "accountant": "no_access",
+          "client": "own_cases_docs"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/DocumentsPage.tsx",
+          
+          "table": {
+            "columns": [
+              { "key": "name", "label": "اسم الملف", "sortable": true, "render": "with_icon" },
+              { "key": "case.caseNumber", "label": "القضية", "sortable": false },
+              { "key": "type", "label": "النوع", "render": "badge" },
+              { "key": "size", "label": "الحجم", "render": "file_size", "hidden_mobile": true },
+              { "key": "uploadedBy.name", "label": "رافع الملف", "hidden_mobile": true },
+              { "key": "createdAt", "label": "التاريخ", "sortable": true, "render": "date" }
+            ],
+            "actions": [
+              { "icon": "download", "tooltip": "تحميل", "roles": ["*"] },
+              { "icon": "eye", "tooltip": "معاينة", "roles": ["*"] },
+              { "icon": "trash", "tooltip": "حذف", "roles": ["admin", "lawyer (own)"] }
+            ]
+          },
+
+          "upload_modal": {
+            "component": "FileUpload",
+            "fields": [
+              { "name": "file", "type": "file", "required": true, "accept": "pdf,doc,docx,xls,xlsx,jpg,jpeg,png", "max_size_mb": 10 },
+              { "name": "caseId", "type": "async_select", "label": "القضية (اختياري)", "required": false, "endpoint": "/api/cases?search=" }
+            ],
+            "behavior": {
+              "drag_drop": true,
+              "progress_bar": true,
+              "multiple": false,
+              "cancel_upload": true
+            }
+          }
+        },
+
+        "backend": {
+          "module": "src/modules/documents",
+          
+          "endpoints": [
+            {
+              "method": "POST",
+              "path": "/api/documents/upload",
+              "auth": "authenticate",
+              "content_type": "multipart/form-data",
+              "middleware": ["authenticate", "upload.single('file')"],
+              "service_logic": [
+                "1. Validate file (size ≤ 10MB, MIME type, extension not blocked)",
+                "2. Generate UUID filename + subfolder (YYYY/MM/)",
+                "3. Save to disk (uploads/2025/01/uuid.pdf)",
+                "4. Compute relative URL (/uploads/2025/01/uuid.pdf)",
+                "5. If caseId provided → verify access (role-based)",
+                "6. INSERT INTO Document (name, url, type, size, caseId, uploadedById)",
+                "7. Audit log: action='document.uploaded'",
+                "8. If caseId provided → notify case lawyer + client",
+                "9. Return { id, name, url, size, type }"
+              ],
+              "security": {
+                "blocked_extensions": [".exe", ".bat", ".cmd", ".sh", ".js", ".vbs", ".scr"],
+                "mime_check": "verify actual file type matches extension",
+                "path_traversal": "prevented via UUID filenames",
+                "quota_per_user": "500MB total"
+              }
+            },
+            {
+              "method": "GET",
+              "path": "/api/documents",
+              "auth": "authenticate",
+              "query": { "page", "pageSize", "search", "caseId", "type" },
+              "isolation": {
+                "admin": "no filter",
+                "lawyer": "WHERE caseId IN (SELECT id FROM Case WHERE lawyerId=self) OR uploadedById=self",
+                "legal_assistant": "WHERE uploadedById=self OR caseId IN (assigned)",
+                "secretary": "read-only, no filter",
+                "client": "WHERE caseId IN (SELECT id FROM Case WHERE client.userId=self)"
+              }
+            },
+            {
+              "method": "GET",
+              "path": "/api/documents/:id/download",
+              "auth": "authenticate",
+              "service_logic": [
+                "1. Find document",
+                "2. Check isolation (ownership or admin)",
+                "3. If not authorized → 404",
+                "4. Stream file to response with Content-Disposition: attachment",
+                "5. Audit log: action='document.downloaded'"
+              ]
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/documents/:id",
+              "auth": "authenticate",
+              "roles": ["admin", "lawyer (own uploads)"],
+              "service_logic": [
+                "1. Find document + verify access",
+                "2. Delete file from disk",
+                "3. DELETE FROM Document",
+                "4. Audit log: action='document.deleted'"
+              ]
+            }
+          ]
+        },
+
+        "isolation_tests": {
+          "total": 24,
+          "critical": [
+            "Client A cannot download Client B's file (404)",
+            "Lawyer cannot delete other lawyer's uploads",
+            "File size > 10MB → 400",
+            "Blocked extension (.exe) → 400",
+            "Quota exceeded → 429"
+          ]
+        }
+      },
+
+      "5_InvoicesPage": {
+        "id": "invoices",
+        "route": "/invoices",
+        "purpose": "إدارة الفواتير المالية",
+        "roles": {
+          "admin": "full_access",
+          "accountant": "full_access",
+          "lawyer": "read_only (own cases)",
+          "client": "own_invoices (read + pay)",
+          "secretary": "no_access"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/InvoicesPage.tsx",
+          
+          "table": {
+            "columns": [
+              { "key": "number", "label": "رقم الفاتورة", "sortable": true, "render": "mono_badge" },
+              { "key": "client.name", "label": "العميل" },
+              { "key": "amount", "label": "المبلغ", "render": "currency", "hidden_mobile": true },
+              { "key": "tax", "label": "الضريبة", "render": "currency", "hidden_mobile": true },
+              { "key": "total", "label": "الإجمالي", "render": "currency_bold" },
+              { "key": "status", "label": "الحالة", "render": "colored_badge", "colors": { "pending": "amber", "paid": "green", "overdue": "red", "cancelled": "gray" } },
+              { "key": "dueDate", "label": "الاستحقاق", "render": "date", "hidden_mobile": true }
+            ],
+            "actions": [
+              { "icon": "eye", "roles": ["admin", "accountant", "client", "lawyer"] },
+              { "icon": "edit", "roles": ["admin", "accountant"] },
+              { "icon": "check-circle", "tooltip": "تعيين كمدفوعة", "roles": ["admin", "accountant"], "conditional": "status !== 'paid'" },
+              { "icon": "download", "tooltip": "تحميل PDF", "roles": ["*"] },
+              { "icon": "credit-card", "tooltip": "دفع", "roles": ["client"], "conditional": "status === 'pending' || status === 'overdue'" }
+            ],
+            "bulk_actions": [
+              { "action": "mark_paid", "roles": ["admin", "accountant"] },
+              { "action": "export_pdf", "roles": ["*"] },
+              { "action": "export_excel", "roles": ["admin", "accountant"] }
+            ]
+          },
+
+          "invoice_form": {
+            "fields": [
+              { "name": "clientId", "type": "async_select", "label": "العميل", "required": true, "endpoint": "/api/clients?search=" },
+              { "name": "caseId", "type": "async_select", "label": "القضية (اختياري)", "required": false, "endpoint": "/api/cases?search=" },
+              { "name": "amount", "type": "number", "label": "المبلغ قبل الضريبة", "required": true, "min": 0, "step": 0.01, "currency": "SAR" },
+              { "name": "tax", "type": "number", "label": "الضريبة (15%)", "required": false, "default": "amount * 0.15", "readonly": true },
+              { "name": "total", "type": "number", "label": "الإجمالي", "readonly": true, "calculated": "amount + tax" },
+              { "name": "dueDate", "type": "date", "label": "تاريخ الاستحقاق", "required": true, "min": "today" }
+            ]
+          }
+        },
+
+        "backend": {
+          "module": "src/modules/invoices",
+          
+          "endpoints": [
+            {
+              "method": "GET",
+              "path": "/api/invoices",
+              "isolation": {
+                "admin": "no filter",
+                "accountant": "no filter",
+                "lawyer": "WHERE caseId IN (SELECT id FROM Case WHERE lawyerId=self)",
+                "client": "WHERE client.userId=self",
+                "secretary": "403 FORBIDDEN"
+              }
+            },
+            {
+              "method": "POST",
+              "path": "/api/invoices",
+              "roles": ["admin", "accountant"],
+              "service_logic": [
+                "1. Validate client + case (if provided)",
+                "2. Auto-generate number: INV-{year}-{seq 5 digits}",
+                "3. Compute total = amount + tax (tax = amount * 0.15 default)",
+                "4. INSERT INTO Invoice",
+                "5. Audit log: 'invoice.created'",
+                "6. Send email to client with PDF",
+                "7. Create notification for client",
+                "8. Return created invoice"
+              ]
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/invoices/:id/status",
+              "roles": ["admin", "accountant", "client (own pay)"],
+              "body": { "status": "paid|cancelled" },
+              "service_logic": [
+                "1. Find invoice + verify access",
+                "2. If status='paid' → set paidAt=NOW()",
+                "3. UPDATE Invoice SET status, paidAt",
+                "4. If client paid → notify accountant + admin",
+                "5. Audit log: 'invoice.status_changed'"
+              ]
+            },
+            {
+              "method": "GET",
+              "path": "/api/invoices/:id/pdf",
+              "service_logic": [
+                "1. Find invoice + verify access",
+                "2. Generate PDF (pdfkit) with Arabic support",
+                "3. Stream to response"
+              ]
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/invoices/:id",
+              "roles": ["admin", "accountant"],
+              "note": "soft delete or actual delete — cancelled invoices only"
+            }
+          ]
+        },
+
+        "isolation_tests": {
+          "total": 24,
+          "critical": [
+            "Client sees only own invoices",
+            "Client cannot modify status of other clients' invoices",
+            "Lawyer cannot create invoices",
+            "Secretary cannot access invoices"
+          ]
+        }
+      },
+
+      "6_AppointmentsPage": {
+        "id": "appointments",
+        "route": "/appointments",
+        "purpose": "إدارة المواعيد والجلسات",
+        "roles": {
+          "admin": "full_access",
+          "lawyer": "own_appointments",
+          "secretary": "full_access",
+          "client": "own_appointments (read + request)",
+          "legal_assistant": "read_assigned",
+          "accountant": "read_only"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/AppointmentsPage.tsx",
+          
+          "views": {
+            "list_view": {
+              "columns": [
+                { "key": "title", "label": "العنوان", "sortable": true },
+                { "key": "client.name", "label": "العميل" },
+                { "key": "lawyer.name", "label": "المحامي" },
+                { "key": "dateTime", "label": "التاريخ والوقت", "render": "datetime", "sortable": true },
+                { "key": "type", "label": "النوع", "render": "badge", "hidden_mobile": true },
+                { "key": "status", "label": "الحالة", "render": "colored_badge", "colors": { "pending": "amber", "confirmed": "green", "cancelled": "red" } }
+              ]
+            },
+            "calendar_view": {
+              "type": "month/week/day",
+              "library": "FullCalendar or similar",
+              "color_coded_by_type": { "meeting": "blue", "court": "red", "consultation": "green" }
+            }
+          },
+
+          "appointment_form": {
+            "fields": [
+              { "name": "title", "type": "text", "label": "العنوان", "required": true },
+              { "name": "clientId", "type": "async_select", "label": "العميل", "required": true, "endpoint": "/api/clients?search=", "roles": ["admin", "secretary"] },
+              { "name": "clientId", "type": "hidden", "value": "self (if client role)" },
+              { "name": "lawyerId", "type": "async_select", "label": "المحامي", "required": true, "endpoint": "/api/users?role=lawyer", "roles": ["admin", "secretary", "client"] },
+              { "name": "lawyerId", "type": "hidden", "value": "self (if lawyer role)" },
+              { "name": "dateTime", "type": "datetime", "label": "التاريخ والوقت", "required": true, "min": "now" },
+              { "name": "type", "type": "select", "label": "النوع", "required": true, "options": [
+                { "value": "meeting", "label": "اجتماع" },
+                { "value": "court", "label": "جلسة محكمة" },
+                { "value": "consultation", "label": "استشارة" }
+              ]},
+              { "name": "notes", "type": "textarea", "label": "ملاحظات", "required": false }
+            ],
+            "validation": {
+              "conflict_check": "client-side + backend: prevent double-booking same lawyer at same time"
+            }
+          }
+        },
+
+        "backend": {
+          "endpoints": [
+            {
+              "method": "GET",
+              "path": "/api/appointments",
+              "isolation": {
+                "admin": "no filter",
+                "lawyer": "WHERE lawyerId = self",
+                "secretary": "no filter",
+                "client": "WHERE clientId = self",
+                "legal_assistant": "read where lawyerId IN assigned"
+              }
+            },
+            {
+              "method": "POST",
+              "path": "/api/appointments",
+              "service_logic": [
+                "1. Check time conflict: lawyer busy at same time → 409",
+                "2. If client role → clientId = self, status='pending' (needs lawyer confirmation)",
+                "3. If admin/secretary → status='confirmed'",
+                "4. INSERT INTO Appointment",
+                "5. Notify lawyer (new appointment request)",
+                "6. Notify client (confirmation)",
+                "7. Send WhatsApp if configured",
+                "8. Audit log"
+              ]
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/appointments/:id/status",
+              "roles": ["admin", "secretary", "lawyer (own)", "client (cancel own)"],
+              "body": { "status": "confirmed|cancelled" },
+              "side_effects": "if confirmed → WhatsApp + SMS to client"
+            }
+          ]
+        },
+
+        "isolation_tests": {
+          "total": 18,
+          "critical": [
+            "Client sees only own appointments",
+            "Lawyer sees only own appointments",
+            "Conflict prevention works (same lawyer, same time)",
+            "Client cannot confirm appointment (only request/cancel)"
+          ]
+        }
+      },
+
+      "7_TasksPage": {
+        "id": "tasks",
+        "route": "/tasks",
+        "purpose": "إدارة المهام (Kanban + List)",
+        "roles": {
+          "admin": "full_access",
+          "lawyer": "own_created + own_assigned",
+          "legal_assistant": "own_assigned",
+          "secretary": "read_assigned",
+          "accountant": "own_assigned",
+          "client": "no_access"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/TasksPage.tsx",
+          
+          "views": {
+            "list_view": {
+              "columns": [
+                { "key": "title", "label": "العنوان", "sortable": true },
+                { "key": "assignee.name", "label": "المسند إليه" },
+                { "key": "priority", "label": "الأولوية", "render": "colored_badge", "colors": { "high": "red", "medium": "amber", "low": "blue" } },
+                { "key": "status", "label": "الحالة", "render": "colored_badge", "colors": { "todo": "gray", "in_progress": "blue", "done": "green" } },
+                { "key": "dueDate", "label": "الاستحقاق", "render": "date", "sortable": true, "hidden_mobile": true }
+              ]
+            },
+            "kanban_view": {
+              "columns": ["todo", "in_progress", "done"],
+              "drag_drop": true,
+              "column_header": { "label": "string", "count": "number" },
+              "card": {
+                "shows": ["title", "assignee_avatar", "priority_dot", "due_date"],
+                "click": "open edit modal"
+              },
+              "drop_behavior": "on drop → optimistic update + API PATCH /api/tasks/:id { status }",
+              "on_error": "revert + toast"
+            }
+          },
+
+          "task_form": {
+            "fields": [
+              { "name": "title", "type": "text", "label": "العنوان", "required": true, "max_length": 255 },
+              { "name": "description", "type": "textarea", "label": "الوصف", "required": false, "rows": 3 },
+              { "name": "assigneeId", "type": "async_select", "label": "المسند إليه", "required": true, "endpoint": "/api/users?role=lawyer|legal_assistant|accountant|secretary", "roles": ["admin", "lawyer"] },
+              { "name": "priority", "type": "select", "label": "الأولوية", "required": true, "options": [
+                { "value": "low", "label": "منخفضة" },
+                { "value": "medium", "label": "متوسطة" },
+                { "value": "high", "label": "عالية" }
+              ]},
+              { "name": "status", "type": "select", "label": "الحالة", "required": true, "options": ["todo", "in_progress", "done"], "default": "todo" },
+              { "name": "dueDate", "type": "date", "label": "تاريخ الاستحقاق", "required": false }
+            ]
+          }
+        },
+
+        "backend": {
+          "endpoints": [
+            {
+              "method": "GET",
+              "path": "/api/tasks",
+              "isolation": {
+                "admin": "no filter",
+                "lawyer": "WHERE assigneeId = self OR createdById = self",
+                "legal_assistant": "WHERE assigneeId = self",
+                "secretary": "WHERE assigneeId = self",
+                "accountant": "WHERE assigneeId = self",
+                "client": "403 FORBIDDEN"
+              }
+            },
+            {
+              "method": "POST",
+              "path": "/api/tasks",
+              "roles": ["admin", "lawyer", "legal_assistant"],
+              "service_logic": [
+                "1. Validate assignee exists",
+                "2. INSERT INTO Task",
+                "3. Notify assignee",
+                "4. Audit log"
+              ]
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/tasks/:id",
+              "isolation": "only assignee, creator, or admin can update",
+              "body": { "title?", "description?", "priority?", "status?", "dueDate?", "assigneeId?" },
+              "kanban_drag": "when status changes → PATCH endpoint + socket emit to creator"
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/tasks/:id",
+              "roles": ["admin", "creator"]
+            }
+          ]
+        },
+
+        "isolation_tests": {
+          "total": 18,
+          "critical": [
+            "User sees only own tasks (assigned or created)",
+            "Cannot update others' tasks",
+            "Drag to done works + notifies creator"
+          ]
+        }
+      },
+
+      "8_UsersPage": {
+        "id": "users",
+        "route": "/users",
+        "purpose": "إدارة المستخدمين (admin only)",
+        "roles": {
+          "admin": "full_access",
+          "others": "403 FORBIDDEN"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/admin/UsersPage.tsx",
+          "note": "admin only — لا يظهر في قائمة باقي الأدوار",
+          
+          "table": {
+            "columns": [
+              { "key": "name", "label": "الاسم", "sortable": true },
+              { "key": "email", "label": "البريد", "sortable": true },
+              { "key": "phone", "label": "الهاتف", "hidden_mobile": true },
+              { "key": "role", "label": "الدور", "render": "colored_badge", "colors": { "admin": "purple", "lawyer": "blue", "legal_assistant": "cyan", "accountant": "green", "secretary": "amber", "client": "gray" } },
+              { "key": "emailVerified", "label": "موثق", "render": "boolean_icon" },
+              { "key": "lastLoginAt", "label": "آخر دخول", "render": "relative_time", "hidden_mobile": true },
+              { "key": "createdAt", "label": "تاريخ التسجيل", "render": "date", "sortable": true, "hidden_mobile": true }
+            ],
+            "filters": [
+              { "key": "role", "type": "select", "options": ["all", "admin", "lawyer", "legal_assistant", "accountant", "secretary", "client"] },
+              { "key": "emailVerified", "type": "select", "options": ["all", "yes", "no"] }
+            ],
+            "actions": [
+              { "icon": "eye", "tooltip": "عرض" },
+              { "icon": "edit", "tooltip": "تعديل" },
+              { "icon": "trash", "tooltip": "حذف", "disabled_if": "user.id === currentUser.id" }
+            ]
+          },
+
+          "user_form": {
+            "fields": [
+              { "name": "name", "type": "text", "label": "الاسم", "required": true },
+              { "name": "email", "type": "email", "label": "البريد", "required": true, "unique_check": true },
+              { "name": "phone", "type": "tel", "label": "الهاتف", "required": true },
+              { "name": "role", "type": "select", "label": "الدور", "required": true, "options": ["admin", "lawyer", "legal_assistant", "accountant", "secretary", "client"] },
+              { "name": "password", "type": "password", "label": "كلمة المرور", "required": "on create", "min_length": 8 },
+              { "name": "emailVerified", "type": "checkbox", "label": "موثق", "default": true }
+            ]
+          }
+        },
+
+        "backend": {
+          "middleware": "authenticate + requireRole('admin')",
+          "endpoints": [
+            { "method": "GET", "path": "/api/users", "roles": ["admin"] },
+            { "method": "POST", "path": "/api/users", "roles": ["admin"] },
+            { "method": "PUT", "path": "/api/users/:id", "roles": ["admin"] },
+            { "method": "DELETE", "path": "/api/users/:id", "roles": ["admin"], "protection": "cannot delete self" }
+          ],
+          "special_logic": {
+            "create": "admin can create any role + set password directly",
+            "update": "role change triggers session invalidation",
+            "delete": "soft delete (set active=false) preferred over hard delete"
+          }
+        },
+
+        "isolation_tests": {
+          "total": 12,
+          "critical": [
+            "Only admin can access /users",
+            "Admin cannot delete self",
+            "Non-admin gets 403"
+          ]
+        }
+      },
+
+      "9_NotificationsPage": {
+        "id": "notifications",
+        "route": "/notifications",
+        "purpose": "عرض وإدارة الإشعارات",
+        "roles": {
+          "all": "own_notifications"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/NotificationsPage.tsx",
+          
+          "filters": [
+            { "key": "status", "label": "الحالة", "options": ["all", "unread", "read"], "default": "all" },
+            { "key": "type", "label": "النوع", "options": ["all", "info", "success", "warning", "error", "appointment", "invoice", "case_update", "task"] }
+          ],
+
+          "list": {
+            "item_structure": {
+              "icon": "colored by type",
+              "title": "notification.title",
+              "message": "notification.message (truncate 100)",
+              "link": "clickable → navigate to related entity",
+              "readIndicator": "dot if unread",
+              "time": "relative_time (e.g., 'منذ 5 دقائق')"
+            },
+            "actions": [
+              { "text": "تعيين كمقروء", "single_item": true },
+              { "text": "تعيين الكل كمقروء", "bulk": true },
+              { "text": "حذف", "single_item": true }
+            ],
+            "grouping": "by date (اليوم / أمس / هذا الأسبوع / أقدم)"
+          },
+
+          "real_time": {
+            "socket_listener": "socket.on('notification:new', ...) → prepend to list + show toast + increment unread badge",
+            "connection_status": "if disconnected → show banner"
+          }
+        },
+
+        "backend": {
+          "endpoints": [
+            {
+              "method": "GET",
+              "path": "/api/notifications",
+              "auth": "authenticate",
+              "query": { "page", "pageSize", "filter": "all|unread|read", "type" },
+              "isolation": "WHERE userId = req.user.userId (STRICT)"
+            },
+            {
+              "method": "GET",
+              "path": "/api/notifications/unread-count",
+              "response": { "success": true, "data": { "count": 5 } }
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/notifications/:id/read",
+              "isolation": "WHERE id = :id AND userId = req.user.userId"
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/notifications/read-all",
+              "update": "UPDATE Notification SET readAt=NOW() WHERE userId=req.user.userId AND readAt IS NULL"
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/notifications/:id",
+              "isolation": "WHERE id = :id AND userId = req.user.userId"
+            }
+          ]
+        },
+
+        "isolation_tests": {
+          "total": 8,
+          "critical": [
+            "User sees only own notifications",
+            "Cannot mark others' notifications as read",
+            "Cannot delete others' notifications"
+          ]
+        }
+      },
+
+      "10_ChatPage": {
+        "id": "chat",
+        "route": "/chat",
+        "purpose": "محادثات فورية بين المستخدمين",
+        "roles": {
+          "all": "own_rooms_only"
+        },
+
+        "frontend": {
+          "file": "src/pages/dashboard/shared/ChatPage.tsx",
+          
+          "layout": {
+            "type": "two-panel",
+            "left_panel": "RoomsList (width: 320px)",
+            "right_panel": "MessagesArea (flex: 1)",
+            "mobile": "list view → click room → messages view (back button)"
+          },
+
+          "rooms_list": {
+            "item": {
+              "avatar": "room avatar or participant initials",
+              "name": "room.name or participant name",
+              "last_message": "truncate 40",
+              "last_message_time": "relative",
+              "unread_badge": "count if unread",
+              "online_status": "dot if direct room"
+            },
+            "sort": "updatedAt DESC",
+            "search": "rooms filter"
+          },
+
+          "messages_area": {
+            "header": {
+              "room_name": "string",
+              "participants": "avatars (for group)",
+              "online_status": "for direct",
+              "actions": ["view info", "leave room (group)", "clear chat"]
+            },
+            "messages": {
+              "bubble": {
+                "layout": "left for others, right for self",
+                "content": "text or file/image",
+                "time": "formatted",
+                "sender_name": "for group",
+                "status": "sent / delivered / read (for own messages)"
+              },
+              "grouping": "consecutive messages by same sender within 2 min",
+              "scroll": "auto-scroll to bottom on new message",
+              "load_more": "scroll to top → load older messages"
+            },
+            "input": {
+              "type": "textarea",
+              "placeholder": "اكتب رسالة...",
+              "actions": ["attach file", "emoji", "send"],
+              "enter_key": "send message",
+              "shift_enter": "new line",
+              "file_upload": { "accept": "images, pdf, doc", "max_size_mb": 10 }
+            }
+          },
+
+          "socket_integration": {
+            "on_mount": "socket.emit('chat:join', roomId) for current room",
+            "events": {
+              "chat:message": "append to messages + auto-scroll",
+              "chat:typing": "show typing indicator (auto-hide 3s)",
+              "chat:read": "mark messages as read",
+              "chat:online": "update online status"
+            },
+            "disconnect": "show reconnecting banner"
+          }
+        },
+
+        "backend": {
+          "module": "src/modules/chat",
+          
+          "endpoints": [
+            {
+              "method": "GET",
+              "path": "/api/chat/rooms",
+              "isolation": "JOIN ChatMember WHERE userId = self",
+              "response": {
+                "items": [
+                  {
+                    "id": "uuid",
+                    "name": "string or null (for direct)",
+                    "type": "direct|group",
+                    "participants": [{ "id", "name", "avatar", "online" }],
+                    "lastMessage": { "content", "createdAt", "senderId" },
+                    "unreadCount": 3,
+                    "updatedAt": "ISO"
+                  }
+                ]
+              }
+            },
+            {
+              "method": "POST",
+              "path": "/api/chat/rooms/direct",
+              "body": { "userId": "uuid" },
+              "service_logic": [
+                "1. Check if direct room exists between self and userId",
+                "2. If exists → return it",
+                "3. Else → create ChatRoom type='direct', members = [self, userId]",
+                "4. Return room"
+              ]
+            },
+            {
+              "method": "POST",
+              "path": "/api/chat/rooms/case/:caseId",
+              "service_logic": [
+                "1. Find case + verify access",
+                "2. Find or create ChatRoom type='group', caseId, members = [case.lawyer, case.client.user, admin]",
+                "3. Return room"
+              ]
+            },
+            {
+              "method": "GET",
+              "path": "/api/chat/rooms/:id/messages",
+              "isolation": "must be member of room",
+              "query": { "page", "pageSize", "before" }
+            },
+            {
+              "method": "POST",
+              "path": "/api/chat/rooms/:id/messages",
+              "body": { "content": "string", "type": "text|file|image", "fileUrl": "string?" },
+              "side_effects": ["socket emit to room", "notify offline members"]
+            }
+          ],
+
+          "socket_events": {
+            "chat:join": "client → server (member check)",
+            "chat:leave": "client → server",
+            "chat:message": "server → room (broadcast)",
+            "chat:typing": "client → room (throttled)",
+            "chat:read": "client → server (update lastReadAt)",
+            "chat:online": "server → rooms (presence)"
+          }
+        },
+
+        "isolation_tests": {
+          "total": 12,
+          "critical": [
+            "User sees only rooms they are member of",
+            "Cannot read messages of rooms not member (403)",
+            "Cannot send to rooms not member (403)",
+            "Socket join requires membership (rejected otherwise)"
+          ]
+        }
+      }
+    },
+
+    "backend_common_infrastructure": {
+      "middleware_chain": [
+        "authenticate (extract user from token/cookie)",
+        "requireRole / requirePermission (check permissions)",
+        "validate (zod schema)",
+        "rateLimit (if applicable)"
+      ],
+      "isolation_pattern": {
+        "step_1": "Extract { userId, role } from req.user",
+        "step_2": "Build WHERE clause based on role",
+        "step_3": "Add user filters (search, status, dates)",
+        "step_4": "Execute query",
+        "step_5": "Return 404 (not 403) for unauthorized single-item access"
+      },
+      "audit_logging": {
+        "file": "src/core/utils/audit.ts",
+        "log_function": "logAudit(req, action, entity, entityId?, metadata?)",
+        "called_on": ["create", "update", "delete", "sensitive read (download)"],
+        "fields_logged": ["userId", "action", "entity", "entityId", "metadata", "ip", "userAgent", "timestamp"]
+      },
+      "notification_pattern": {
+        "file": "src/core/notifications/notification.service.ts",
+        "method": "NotificationsService.create({ userId, type, title, message, link })",
+        "side_effects": ["INSERT", "socket emit", "push notification"]
+      },
+      "pagination_helper": {
+        "file": "src/core/utils/pagination.ts",
+        "function": "parsePagination(query) → { page, pageSize, skip, take }",
+        "function_2": "parseSort(query, allowedFields) → { [field]: 'asc|desc' }"
+      },
+      "response_helper": {
+        "file": "src/core/utils/response.ts",
+        "functions": ["ok", "created", "paginated", "notFound", "forbidden"]
+      }
+    },
+
+    "database_layer": {
+      "tables_used": {
+        "Case": { "indexes": ["caseNumber", "status", "clientId", "lawyerId", "openedAt"] },
+        "Client": { "indexes": ["email", "type"] },
+        "Document": { "indexes": ["caseId", "uploadedById"] },
+        "Invoice": { "indexes": ["number", "status", "clientId", "dueDate"] },
+        "Appointment": { "indexes": ["dateTime", "status", "lawyerId", "clientId"] },
+        "Task": { "indexes": ["status", "assigneeId", "dueDate"] },
+        "User": { "indexes": ["email", "role"] },
+        "Notification": { "indexes": ["userId+readAt", "createdAt"] },
+        "ChatRoom": { "indexes": ["caseId", "type"] },
+        "ChatMember": { "composite": ["roomId", "userId"] },
+        "ChatMessage": { "composite": ["roomId", "createdAt"] },
+        "AuditLog": { "indexes": ["userId", "entity", "createdAt"] }
+      },
+      "common_queries": {
+        "paginated_list": "SELECT * FROM {table} WHERE [role-filter] AND [search-filter] ORDER BY [sort] LIMIT $take OFFSET $skip",
+        "count_total": "SELECT COUNT(*) FROM {table} WHERE [same-where]",
+        "single_get": "SELECT * FROM {table} WHERE id = $1 AND [role-filter]",
+        "insert": "INSERT INTO {table} (fields...) VALUES (...) RETURNING *",
+        "update": "UPDATE {table} SET fields... WHERE id = $1",
+        "delete": "DELETE FROM {table} WHERE id = $1"
+      }
+    },
+
+    "isolation_matrix": {
+      "description": "من يرى ماذا في كل صفحة",
+      "pages": {
+        "CasesPage": {
+          "admin": "ALL cases",
+          "lawyer": "WHERE lawyerId = self",
+          "legal_assistant": "WHERE lawyerId IN assigned",
+          "secretary": "ALL (read-only)",
+          "accountant": "NO ACCESS",
+          "client": "WHERE client.userId = self"
+        },
+        "ClientsPage": {
+          "admin": "ALL clients",
+          "secretary": "ALL clients",
+          "lawyer": "WHERE id IN (own cases' clients)",
+          "client": "NO ACCESS"
+        },
+        "DocumentsPage": {
+          "admin": "ALL documents",
+          "lawyer": "WHERE caseId IN (own cases) OR uploadedById = self",
+          "legal_assistant": "WHERE uploadedById = self OR assigned cases",
+          "secretary": "ALL (read-only)",
+          "client": "WHERE caseId IN (own cases)"
+        },
+        "InvoicesPage": {
+          "admin": "ALL invoices",
+          "accountant": "ALL invoices",
+          "lawyer": "WHERE caseId IN (own cases)",
+          "client": "WHERE client.userId = self",
+          "secretary": "NO ACCESS"
+        },
+        "AppointmentsPage": {
+          "admin": "ALL appointments",
+          "lawyer": "WHERE lawyerId = self",
+          "secretary": "ALL appointments",
+          "client": "WHERE clientId = self",
+          "legal_assistant": "WHERE lawyerId IN assigned (read)"
+        },
+        "TasksPage": {
+          "admin": "ALL tasks",
+          "lawyer": "WHERE assigneeId = self OR createdById = self",
+          "legal_assistant": "WHERE assigneeId = self",
+          "secretary": "WHERE assigneeId = self",
+          "accountant": "WHERE assigneeId = self",
+          "client": "NO ACCESS"
+        },
+        "UsersPage": {
+          "admin": "ALL users",
+          "others": "NO ACCESS (403)"
+        },
+        "NotificationsPage": {
+          "all": "WHERE userId = self (STRICT)"
+        },
+        "ChatPage": {
+          "all": "WHERE roomId IN (SELECT roomId FROM ChatMember WHERE userId = self)"
+        }
+      }
+    },
+
+    "statistics": {
+      "total_shared_pages": 10,
+      "total_endpoints": 42,
+      "total_isolation_tests": 210,
+      "total_components_used": 18,
+      "total_tables_used": 13,
+      "estimated_frontend_files": 25,
+      "estimated_backend_files": 20,
+      "estimated_days": 42
+    },
+
+    "verification_checklist": {
+      "universal": [
+        "كل صفحة تعمل بـ 4 حالات (loading/empty/error/populated)",
+        "Pagination + search + sort + filters",
+        "Role-based actions (hide/show buttons)",
+        "Isolation enforced في الـ API",
+        "Isolation tests تمر (210 اختبار)",
+        "Audit log لكل write operation",
+        "Toast notifications",
+        "Responsive على 3 أحجام",
+        "AR/EN + RTL/LTR",
+        "Light/Dark"
+      ],
+      "critical": [
+        "🚨 Client A cannot see Client B data",
+        "🚨 Lawyer cannot edit other's cases",
+        "🚨 Deleted items cascade correctly",
+        "🚨 404 (not 403) for unauthorized access (prevent enumeration)",
+        "🚨 Audit log has all sensitive operations",
+        "🚨 No N+1 queries",
+        "🚨 Pagination limits enforced (max 100)"
+      ]
+    }
+  }
+}

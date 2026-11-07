@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Connection test document
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Cases collection
+    match /cases/{caseId} {
+      allow read, write: if true;
+    }
+
+    // Clients collection
+    match /clients/{clientId} {
+      allow read, write: if true;
+    }
+
+    // Invoices collection
+    match /invoices/{invoiceId} {
+      allow read, write: if true;
+    }
+
+    // Appointments collection
+    match /appointments/{appointmentId} {
+      allow read, write: if true;
+    }
+
+    // Tasks collection
+    match /tasks/{taskId} {
+      allow read, write: if true;
+    }
+
+    // Documents collection
+    match /documents/{documentId} {
+      allow read, write: if true;
+    }
+
+    // Notifications collection
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+
+    // Contact Messages (Public form submission + read/write)
+    match /contactMessages/{messageId} {
+      allow read, write: if true;
+    }
+  }
+}

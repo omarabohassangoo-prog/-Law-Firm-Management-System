@@ -1,0 +1,942 @@
+{
+  "backend_audit_system_plan": {
+    "metadata": {
+      "title": "نظام الفحص الخلفي الآلي — Backend Audit System",
+      "version": "1.0.0",
+      "purpose": "أتمتة كل فحوصات ما قبل النشر + تقرير + قرار",
+      "access_level": "admin + devops",
+      "frequency": "on-demand + pre-deployment + scheduled (daily)",
+      "target": ["AI Studio", "فريق التطوير", "DevOps"],
+      "tech_stack": ["Node.js + TS", "Jest", "Playwright", "k6", "ZAP", "Trivy"]
+    },
+
+    "overview": {
+      "purpose": "تمكين فريق DevOps من تشغيل 277 فحص تلقائياً بدل الاختبار اليدوي",
+      "benefits": [
+        "⚡ فحص كامل في < 30 دقيقة بدل 5 أيام يدوي",
+        "🎯 نتائج قابلة للتكرار",
+        "📊 تقرير تلقائي + حفظ تاريخي",
+        "🚫 منع النشر التلقائي عند فشل فحص حرج",
+        "📈 تتبع التحسن عبر الزمن",
+        "🔗 تكامل مع GitHub Actions",
+        "🎨 Dashboard مرئي للنتائج"
+      ],
+      "audit_categories": [
+        "functional",
+        "security",
+        "performance",
+        "data_integrity",
+        "isolation",
+        "integration",
+        "ux_accessibility",
+        "seo",
+        "infrastructure",
+        "documentation"
+      ]
+    },
+
+    "architecture": {
+      "folder_structure": {
+        "src/modules/audit": {
+          "files": [
+            "audit.schema.ts",
+            "audit.service.ts",
+            "audit.controller.ts",
+            "audit.routes.ts",
+            "audit-runner.service.ts",
+            "audit-report.service.ts",
+            "audit-scheduler.service.ts",
+            "checks/",
+            "├── functional.check.ts",
+            "├── security.check.ts",
+            "├── performance.check.ts",
+            "├── data-integrity.check.ts",
+            "├── isolation.check.ts",
+            "├── integration.check.ts",
+            "├── ux-accessibility.check.ts",
+            "├── seo.check.ts",
+            "├── infrastructure.check.ts",
+            "└── documentation.check.ts",
+            "reporters/",
+            "├── json.reporter.ts",
+            "├── html.reporter.ts",
+            "├── markdown.reporter.ts",
+            "└── slack.reporter.ts"
+          ]
+        }
+      },
+
+      "core_components": {
+        "AuditRunner": {
+          "purpose": "المشغل الرئيسي — ينسق كل الفحوصات",
+          "responsibilities": [
+            "تشغيل الفحوصات بالترتيب",
+            "جمع النتائج",
+            "حساب الدرجات",
+            "اتخاذ قرار النشر"
+          ]
+        },
+        "CheckRegistry": {
+          "purpose": "سجل كل الفحوصات المتاحة",
+          "responsibilities": [
+            "تسجيل كل check",
+            "ترتيب حسب الأولوية",
+            "تحديد الـ dependencies"
+          ]
+        },
+        "Reporter": {
+          "purpose": "توليد التقارير",
+          "formats": ["JSON", "HTML", "Markdown", "Slack"]
+        },
+        "Scheduler": {
+          "purpose": "تشغيل دوري",
+          "frequencies": ["daily", "weekly", "pre-deploy", "on-demand"]
+        }
+      }
+    },
+
+    "database": {
+      "tables": {
+        "AuditRun": {
+          "purpose": "سجل كل عملية فحص",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "type", "type": "enum(full|quick|pre_deploy|scheduled|on_demand)" },
+            { "name": "status", "type": "enum(pending|running|passed|failed|error)" },
+            { "name": "total_checks", "type": "int" },
+            { "name": "passed", "type": "int" },
+            { "name": "failed", "type": "int" },
+            { "name": "critical_failed", "type": "int" },
+            { "name": "score", "type": "float (0-100)" },
+            { "name": "verdict", "type": "enum(go|conditional_go|no_go)" },
+            { "name": "duration_ms", "type": "int" },
+            { "name": "triggered_by", "type": "uuid FK → User" },
+            { "name": "environment", "type": "enum(development|staging|production)" },
+            { "name": "git_commit", "type": "string?" },
+            { "name": "git_branch", "type": "string?" },
+            { "name": "started_at", "type": "datetime" },
+            { "name": "finished_at", "type": "datetime?" },
+            { "name": "report_url", "type": "string?" }
+          ],
+          "indexes": ["status", "started_at", "verdict", "environment"]
+        },
+
+        "AuditCheck": {
+          "purpose": "سجل كل فحص داخل audit run",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "auditRunId", "type": "uuid FK → AuditRun" },
+            { "name": "category", "type": "string" },
+            { "name": "checkId", "type": "string (e.g., SEC-01)" },
+            { "name": "name", "type": "string" },
+            { "name": "severity", "type": "enum(critical|high|medium|low)" },
+            { "name": "status", "type": "enum(passed|failed|skipped|error)" },
+            { "name": "duration_ms", "type": "int" },
+            { "name": "expected", "type": "text?" },
+            { "name": "actual", "type": "text?" },
+            { "name": "error", "type": "text?" },
+            { "name": "evidence", "type": "json? (screenshots, logs, responses)" },
+            { "name": "started_at", "type": "datetime" },
+            { "name": "finished_at", "type": "datetime?" }
+          ],
+          "indexes": ["auditRunId", "category", "status", "severity"]
+        },
+
+        "AuditSchedule": {
+          "purpose": "جدولة الفحوصات الدورية",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "name", "type": "string" },
+            { "name": "type", "type": "enum(daily|weekly|monthly|pre_deploy|custom)" },
+            { "name": "cronExpression", "type": "string" },
+            { "name": "checkCategories", "type": "json" },
+            { "name": "environment", "type": "enum(development|staging|production)" },
+            { "name": "notifyOnFailure", "type": "json (emails, slack)" },
+            { "name": "enabled", "type": "boolean" },
+            { "name": "lastRunAt", "type": "datetime?" },
+            { "name": "nextRunAt", "type": "datetime?" }
+          ]
+        },
+
+        "AuditBaseline": {
+          "purpose": "مرجع للمقارنة (لا تراجع)",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "checkId", "type": "string" },
+            { "name": "metric", "type": "string (e.g., p95_latency)" },
+            { "name": "bestValue", "type": "float" },
+            { "name": "bestAuditRunId", "type": "uuid FK → AuditRun" },
+            { "name": "updatedAt", "type": "datetime" }
+          ]
+        }
+      }
+    },
+
+    "check_registry": {
+      "description": "كل فحص مسجل كـ check قابل للتشغيل",
+
+      "interface": {
+        "id": "string (unique, e.g., SEC-01)",
+        "category": "string",
+        "name": "string",
+        "severity": "critical | high | medium | low",
+        "run": "async (context) => CheckResult",
+        "timeout": "number (ms)",
+        "requires": "array (check IDs that must pass first)",
+        "skipIf": "optional (context) => boolean"
+      },
+
+      "check_result": {
+        "status": "passed | failed | skipped | error",
+        "duration_ms": "number",
+        "expected": "string",
+        "actual": "string",
+        "evidence": "object (logs, screenshots, data)",
+        "message": "string?"
+      },
+
+      "registry_example": [
+        {
+          "id": "SEC-01",
+          "category": "security",
+          "name": "JWT secrets are 64+ chars",
+          "severity": "critical",
+          "timeout": 5000,
+          "run": "checkJwtSecretLength"
+        },
+        {
+          "id": "ISO-01",
+          "category": "isolation",
+          "name": "Client A cannot see Client B's cases",
+          "severity": "critical",
+          "timeout": 15000,
+          "run": "checkClientIsolation",
+          "requires": ["AUTH-01"]
+        }
+      ]
+    },
+
+    "runner_logic": {
+      "start_audit_run": {
+        "steps": [
+          "1. Create AuditRun record (status: pending)",
+          "2. Load all registered checks",
+          "3. Filter by requested categories",
+          "4. Resolve dependencies (topological sort)",
+          "5. Update status: running",
+          "6. Execute checks in order",
+          "7. Save results as AuditCheck records",
+          "8. Calculate score + verdict",
+          "9. Generate report",
+          "10. Update AuditRun (completed)",
+          "11. Notify stakeholders"
+        ]
+      },
+
+      "check_execution": {
+        "steps": [
+          "1. Check if skipIf condition met → skip",
+          "2. Verify all requires passed → else skip",
+          "3. Create AuditCheck record (status: pending)",
+          "4. Start timeout timer",
+          "5. Execute check.run(context)",
+          "6. Capture result",
+          "7. Record duration",
+          "8. Save evidence",
+          "9. Update AuditCheck record",
+          "10. If critical and failed → optionally stop immediately (fail-fast)"
+        ],
+        "error_handling": {
+          "timeout": "mark as error + continue",
+          "exception": "mark as error + log stack + continue",
+          "network_error": "retry 3x with backoff, then mark error"
+        }
+      },
+
+      "score_calculation": {
+        "formula": "weighted_average(check_scores)",
+        "weights": {
+          "critical": 10,
+          "high": 5,
+          "medium": 2,
+          "low": 1
+        },
+        "check_score": {
+          "passed": "100",
+          "failed": "0",
+          "skipped": "null (excluded)",
+          "error": "0"
+        },
+        "verdict_rules": {
+          "go": [
+            "critical_failed === 0",
+            "high_failed === 0",
+            "medium_pass_rate >= 90%",
+            "score >= 90"
+          ],
+          "conditional_go": [
+            "critical_failed === 0",
+            "high_pass_rate >= 95%",
+            "score >= 80"
+          ],
+          "no_go": [
+            "critical_failed > 0",
+            "OR high_failed > 5%",
+            "OR score < 80"
+          ]
+        }
+      }
+    },
+
+    "checks_implementation": {
+      "functional_checks": {
+        "file": "src/modules/audit/checks/functional.check.ts",
+        "implementation": {
+          "framework": "Playwright + Supertest + fetch",
+          "checks": [
+            {
+              "id": "AUTH-01",
+              "name": "Full registration flow",
+              "run": async () => {
+                "1. POST /api/auth/register with new email",
+                "2. Verify 201 + user in DB",
+                "3. Verify email sent (check Mailtrap/SMTP log)",
+                "4. Extract verify token from email",
+                "5. POST /api/auth/verify-email",
+                "6. POST /api/auth/login",
+                "7. Verify 200 + cookies set",
+                "8. GET /api/auth/me with cookies",
+                "9. Verify user data matches",
+                "return { status: 'passed', evidence: {...} }"
+              }
+            },
+            {
+              "id": "CASE-01",
+              "name": "Create case + verify fields",
+              "run": async () => {
+                "1. Login as admin",
+                "2. GET /api/clients to get clientId",
+                "3. POST /api/cases with valid data",
+                "4. Verify 201 + caseNumber format",
+                "5. GET /api/cases/:id",
+                "6. Verify fields match",
+                "7. Cleanup: DELETE case",
+                "return { status: 'passed' }"
+              }
+            }
+          ]
+        }
+      },
+
+      "security_checks": {
+        "file": "src/modules/audit/checks/security.check.ts",
+        "implementation": {
+          "framework": "Supertest + custom probes",
+          "checks": [
+            {
+              "id": "SEC-13",
+              "name": "SQL injection blocked",
+              "run": async () => {
+                "1. Login as admin",
+                "2. POST /api/cases with title: \"'; DROP TABLE users; --\"",
+                "3. Verify 400 or 201 with sanitized title",
+                "4. Verify users table still exists",
+                "5. Verify title stored as literal string",
+                "return passed"
+              }
+            },
+            {
+              "id": "SEC-14",
+              "name": "XSS blocked",
+              "run": async () => {
+                "1. POST /api/cases with title: '<script>alert(1)</script>'",
+                "2. GET /api/cases/:id",
+                "3. Verify title is escaped or sanitized",
+                "4. Verify no <script> tag in response",
+                "return passed"
+              }
+            },
+            {
+              "id": "SEC-17",
+              "name": "File upload content-type spoofing",
+              "run": async () => {
+                "1. Create fake PDF (actually exe)",
+                "2. POST /api/documents/upload",
+                "3. Verify 400 rejected (MIME check)",
+                "return passed"
+              }
+            },
+            {
+              "id": "SEC-24",
+              "name": "HTTPS enforced",
+              "run": async () => {
+                "1. curl http://localhost:80 (or staging URL)",
+                "2. Verify 301 redirect to https",
+                "3. Verify HSTS header",
+                "return passed"
+              }
+            }
+          ]
+        }
+      },
+
+      "performance_checks": {
+        "file": "src/modules/audit/checks/performance.check.ts",
+        "implementation": {
+          "framework": "k6 (via child_process) + autocannon",
+          "checks": [
+            {
+              "id": "PERF-01",
+              "name": "GET /api/cases p95 < 200ms",
+              "run": async () => {
+                "1. Run autocannon for 10s with 100 connections",
+                "2. Parse results",
+                "3. Verify p95 < 200ms",
+                "4. Save metrics",
+                "return passed/failed"
+              }
+            },
+            {
+              "id": "PERF-19",
+              "name": "1000 concurrent users",
+              "run": async () => {
+                "1. Execute: k6 run --vus 1000 --duration 1m load-test.js",
+                "2. Parse JSON output",
+                "3. Verify p95 < 500ms, error rate < 0.1%",
+                "4. return passed/failed"
+              }
+            }
+          ]
+        }
+      },
+
+      "isolation_checks": {
+        "file": "src/modules/audit/checks/isolation.check.ts",
+        "implementation": {
+          "framework": "Supertest with multiple user contexts",
+          "checks": [
+            {
+              "id": "ISO-01",
+              "name": "Client A cannot see Client B's cases",
+              "run": async () => {
+                "1. Create clientA user + clientB user",
+                "2. Login as clientA",
+                "3. Create case for clientA",
+                "4. Login as clientB",
+                "5. GET /api/cases/:caseAId",
+                "6. Verify 404 (not 403)",
+                "7. Verify response doesn't leak case data",
+                "8. Cleanup",
+                "return passed"
+              }
+            },
+            {
+              "id": "ISO-09",
+              "name": "Lawyer A cannot see Lawyer B's cases",
+              "run": async () => {
+                "similar to above, with lawyers"
+              }
+            },
+            {
+              "id": "ISO-21",
+              "name": "No inference via 403 vs 404",
+              "run": async () => {
+                "1. Login as clientB",
+                "2. GET /api/cases/00000000-0000-0000-0000-000000000000",
+                "3. GET /api/cases/:realCaseId (belongs to clientA)",
+                "4. Verify both return SAME status code",
+                "5. Verify both return SAME response body format",
+                "return passed"
+              }
+            }
+          ]
+        }
+      },
+
+      "infrastructure_checks": {
+        "file": "src/modules/audit/checks/infrastructure.check.ts",
+        "implementation": {
+          "framework": "System commands + health checks",
+          "checks": [
+            {
+              "id": "INF-02",
+              "name": "Disk space > 30%",
+              "run": async () => {
+                "1. Execute: df -h /",
+                "2. Parse available %",
+                "3. Verify >= 30%",
+                "return passed/failed"
+              }
+            },
+            {
+              "id": "INF-06",
+              "name": "All containers running",
+              "run": async () => {
+                "1. Execute: docker ps --format json",
+                "2. Parse output",
+                "3. Verify all expected services up",
+                "4. Check healthchecks",
+                "return passed/failed"
+              }
+            },
+            {
+              "id": "INF-15",
+              "name": "Backup automation works",
+              "run": async () => {
+                "1. Execute: ls -la /backups/",
+                "2. Verify latest backup < 24h old",
+                "3. Verify checksum valid",
+                "4. Try sample restore to temp DB",
+                "5. Verify restore success",
+                "return passed/failed"
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    "api_endpoints": {
+      "base": "/api/audit",
+
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/audit/run",
+          "auth": "admin or devops",
+          "body": {
+            "type": "enum(full|quick|pre_deploy|scheduled|on_demand)",
+            "categories": "array (optional, all if empty)",
+            "environment": "enum(development|staging|production)",
+            "failFast": "boolean (default: true for critical)"
+          },
+          "returns": {
+            "auditRunId": "uuid",
+            "status": "running",
+            "estimatedDuration": "number (seconds)"
+          },
+          "async": "returns immediately, runs in background",
+          "websocket": "emits 'audit:started' + 'audit:progress' + 'audit:finished'"
+        },
+
+        {
+          "method": "GET",
+          "path": "/api/audit/runs",
+          "auth": "admin or devops",
+          "query": "page, pageSize, status, verdict, environment, dateFrom, dateTo",
+          "returns": "PaginatedResult<AuditRun>"
+        },
+
+        {
+          "method": "GET",
+          "path": "/api/audit/runs/:id",
+          "auth": "admin or devops",
+          "returns": {
+            "run": "AuditRun",
+            "checks": "AuditCheck[] (grouped by category)",
+            "summary": "byCategory",
+            "verdict": "go|conditional_go|no_go"
+          }
+        },
+
+        {
+          "method": "GET",
+          "path": "/api/audit/runs/:id/report",
+          "auth": "admin or devops",
+          "query": "format=json|html|markdown",
+          "returns": "report in requested format"
+        },
+
+        {
+          "method": "POST",
+          "path": "/api/audit/runs/:id/cancel",
+          "auth": "admin",
+          "note": "only if status=running"
+        },
+
+        {
+          "method": "GET",
+          "path": "/api/audit/checks",
+          "auth": "admin",
+          "returns": "all registered checks (for UI display)",
+          "note": "shows what will be tested"
+        },
+
+        {
+          "method": "POST",
+          "path": "/api/audit/pre-deploy-check",
+          "auth": "github-actions (webhook secret)",
+          "body": {
+            "environment": "staging|production",
+            "gitCommit": "string",
+            "gitBranch": "string"
+          },
+          "returns": {
+            "auditRunId": "uuid",
+            "verdict": "go|no_go",
+            "shouldBlockDeploy": "boolean"
+          },
+          "note": "Synchronous — CI/CD waits for result"
+        },
+
+        {
+          "method": "GET",
+          "path": "/api/audit/schedules",
+          "auth": "admin"
+        },
+
+        {
+          "method": "POST",
+          "path": "/api/audit/schedules",
+          "auth": "admin",
+          "body": {
+            "name": "string",
+            "type": "daily|weekly|pre_deploy",
+            "cronExpression": "string",
+            "checkCategories": "array",
+            "environment": "enum"
+          }
+        },
+
+        {
+          "method": "PUT",
+          "path": "/api/audit/schedules/:id",
+          "auth": "admin"
+        },
+
+        {
+          "method": "DELETE",
+          "path": "/api/audit/schedules/:id",
+          "auth": "admin"
+        },
+
+        {
+          "method": "GET",
+          "path": "/api/audit/baselines",
+          "auth": "admin",
+          "returns": "best metrics ever (for comparison)"
+        },
+
+        {
+          "method": "GET",
+          "path": "/api/audit/trends",
+          "auth": "admin",
+          "query": "days=30",
+          "returns": "scores over time + charts data"
+        }
+      ]
+    },
+
+    "reporters": {
+      "json_reporter": {
+        "file": "src/modules/audit/reporters/json.reporter.ts",
+        "output": {
+          "auditRun": "AuditRun",
+          "summary": {
+            "total": "number",
+            "passed": "number",
+            "failed": "number",
+            "skipped": "number",
+            "critical_failed": "number",
+            "score": "float",
+            "verdict": "string"
+          },
+          "byCategory": "object",
+          "checks": "AuditCheck[]",
+          "recommendations": "string[]"
+        }
+      },
+
+      "html_reporter": {
+        "file": "src/modules/audit/reporters/html.reporter.ts",
+        "template": "Handlebars or EJS",
+        "features": [
+          "شعار المكتب",
+          "معلومات الجلسة (git commit, environment)",
+          "رسم دائري للنتائج",
+          "قوائم الفحوصات حسب category",
+          "الأخطاء مع تفاصيل",
+          "توصيات",
+          "قرار النشر (Go/No-Go) بارز"
+        ],
+        "output": "single HTML file (self-contained)",
+        "storage": "S3 or /public/reports/"
+      },
+
+      "markdown_reporter": {
+        "file": "src/modules/audit/reporters/markdown.reporter.ts",
+        "output": "GitHub-flavored Markdown",
+        "use_case": "PR comments + documentation"
+      },
+
+      "slack_reporter": {
+        "file": "src/modules/audit/reporters/slack.reporter.ts",
+        "format": "Block Kit",
+        "blocks": [
+          "Header (✅/⚠️/🚨)",
+          "Summary (score + verdict)",
+          "Critical failures (if any)",
+          "Link to full report",
+          "Action buttons (Rerun / View Details)"
+        ],
+        "channels": {
+          "success": "#audits",
+          "failure": "#alerts",
+          "critical": "#incidents"
+        }
+      }
+    },
+
+    "websocket_integration": {
+      "namespace": "/audit",
+      "events": [
+        {
+          "event": "audit:started",
+          "payload": { "auditRunId": "uuid", "type": "string", "totalChecks": "number" }
+        },
+        {
+          "event": "audit:progress",
+          "payload": {
+            "auditRunId": "uuid",
+            "current": "number",
+            "total": "number",
+            "currentCheck": "string",
+            "passed": "number",
+            "failed": "number"
+          },
+          "frequency": "per check (throttled 1/s)"
+        },
+        {
+          "event": "audit:check_completed",
+          "payload": {
+            "checkId": "string",
+            "status": "passed|failed",
+            "duration": "number"
+          }
+        },
+        {
+          "event": "audit:finished",
+          "payload": {
+            "auditRunId": "uuid",
+            "verdict": "go|conditional_go|no_go",
+            "score": "number",
+            "duration": "number",
+            "reportUrl": "string"
+          }
+        }
+      ],
+      "rooms": ["audit:{auditRunId}", "audit:admins"],
+      "auth": "admin only"
+    },
+
+    "ci_cd_integration": {
+      "github_actions": {
+        "pre_deploy_job": {
+          "steps": [
+            "1. Deploy to staging",
+            "2. Wait for healthcheck",
+            "3. POST /api/audit/pre-deploy-check { environment: staging, gitCommit, gitBranch }",
+            "4. Poll /api/audit/runs/:id every 10s until finished",
+            "5. If verdict !== 'go' → exit 1 (block deploy)",
+            "6. If verdict === 'go' → continue to production"
+          ],
+          "timeout": "30 minutes",
+          "on_failure": "Post to Slack + block merge"
+        },
+        "scheduled_audit": {
+          "cron": "0 3 * * * (daily at 3 AM)",
+          "workflow": [
+            "1. POST /api/audit/run { type: scheduled, categories: all }",
+            "2. Wait for completion",
+            "3. Generate report",
+            "4. Post summary to Slack",
+            "5. If failed → create GitHub issue"
+          ]
+        }
+      }
+    },
+
+    "dashboard_ui": {
+      "description": "لوحة عرض النتائج للمدير والـ DevOps",
+      "route": "/settings/audit",
+      "sections": [
+        {
+          "id": "overview",
+          "shows": [
+            "آخر audit run (score + verdict)",
+            "Trend chart (last 30 days)",
+            "الفئات الأضعف",
+            "Actions: Run Now / Schedule / View History"
+          ]
+        },
+        {
+          "id": "live",
+          "shows": [
+            "Progress bar (real-time via WebSocket)",
+            "Current check running",
+            "Live log stream",
+            "Cancel button"
+          ]
+        },
+        {
+          "id": "history",
+          "shows": [
+            "Table: date, type, score, verdict, duration, actions",
+            "Filters: status, verdict, environment, date range",
+            "Click → detail view"
+          ]
+        },
+        {
+          "id": "detail",
+          "shows": [
+            "Summary cards (total, passed, failed, critical)",
+            "Charts by category",
+            "Accordion list of all checks",
+            "Each check: name, expected, actual, error, evidence",
+            "Download report buttons"
+          ]
+        },
+        {
+          "id": "schedules",
+          "shows": [
+            "List of schedules",
+            "Create/edit schedule form",
+            "Next run times",
+            "Enable/disable toggle"
+          ]
+        },
+        {
+          "id": "baselines",
+          "shows": [
+            "Best metric ever per check",
+            "Current vs best (delta)",
+            "Warnings if regression"
+          ]
+        }
+      ]
+    },
+
+    "pre_deploy_gate": {
+      "description": "منع النشر إذا فشل الفحص",
+      "logic": {
+        "step_1": "CI/CD triggers pre-deploy audit",
+        "step_2": "Audit runs automatically (~15 min for quick, 30 min for full)",
+        "step_3": "If verdict === 'no_go' → fail the build",
+        "step_4": "If verdict === 'conditional_go' → require manual approval",
+        "step_5": "If verdict === 'go' → auto-proceed",
+        "step_6": "In all cases → record audit run in DB"
+      },
+      "bypass": {
+        "who": "admin only",
+        "requires": "reason + password + audit re-run",
+        "logged": "in AuditRun.metadata"
+      }
+    },
+
+    "notifications": {
+      "triggers": [
+        "audit:started → notify subscribers",
+        "audit:finished → send summary",
+        "audit:failed_critical → urgent alert",
+        "regression_detected → notify"
+      ],
+      "channels": ["slack", "email", "in-app", "pagerduty (critical only)"],
+      "templates": {
+        "success": "✅ Audit Passed: {score}/100 in {duration}s",
+        "conditional": "⚠️ Audit Conditional: {score}/100 — Review required",
+        "failure": "🚨 Audit Failed: {critical_failed} critical issues"
+      }
+    },
+
+    "scheduler": {
+      "implementation": "node-cron + BullMQ",
+      "default_schedules": [
+        {
+          "name": "Daily Full Audit",
+          "cron": "0 3 * * *",
+          "type": "full",
+          "environment": "staging",
+          "notifyOnFailure": ["slack:#audits", "email:admin@lawfirm.com"]
+        },
+        {
+          "name": "Weekly Production Audit",
+          "cron": "0 4 * * 0",
+          "type": "full",
+          "environment": "production",
+          "notifyOnFailure": ["slack:#alerts", "pagerduty"]
+        },
+        {
+          "name": "Pre-Deploy Quick Audit",
+          "trigger": "on_deploy",
+          "type": "quick",
+          "categories": ["security", "isolation", "functional"],
+          "required": true
+        }
+      ]
+    },
+
+    "cleanup": {
+      "retention": {
+        "audit_runs": "90 days",
+        "audit_checks": "90 days",
+        "reports": "1 year (S3)",
+        "baselines": "forever"
+      },
+      "cleanup_job": "daily at 4 AM"
+    },
+
+    "security": {
+      "access": {
+        "run": "admin or devops",
+        "view": "admin or devops",
+        "schedules": "admin",
+        "reports": "admin or devops"
+      },
+      "rate_limiting": {
+        "run_per_hour": 5,
+        "run_concurrent": 1
+      },
+      "audit_of_audit": {
+        "log": "every audit run in AuditLog table",
+        "fields": "userId, action, auditRunId, ip, timestamp"
+      }
+    },
+
+    "verification_checklist": {
+      "system": [
+        "✅ يمكن تشغيل audit يدوياً",
+        "✅ يمكن جدولة audit دوري",
+        "✅ CI/CD يمنع نشر عند فشل critical",
+        "✅ النتائج محفوظة في DB",
+        "✅ تقارير قابلة للتحميل (JSON/HTML/Markdown)",
+        "✅ WebSocket يعرض التقدم",
+        "✅ Dashboard يعرض التاريخ",
+        "✅ Baselines للمقارنة",
+        "✅ Notifications تعمل"
+      ],
+      "reliability": [
+        "✅ Timeout لكل check",
+        "✅ Graceful error handling",
+        "✅ Concurrent runs managed",
+        "✅ Cancel works",
+        "✅ Retry failed checks"
+      ],
+      "accuracy": [
+        "✅ False positives < 5%",
+        "✅ Evidence محفوظة",
+        "✅ Reproducible results"
+      ]
+    },
+
+    "statistics": {
+      "total_checks": 277,
+      "categories": 10,
+      "api_endpoints": 13,
+      "db_tables": 4,
+      "reporters": 4,
+      "websocket_events": 4,
+      "estimated_days": 8,
+      "estimated_audit_duration": "20-30 minutes (full)"
+    }
+  }
+}

@@ -1,0 +1,770 @@
+{
+  "pre_deployment_audit_plan": {
+    "metadata": {
+      "title": "مخطط الفحص الشامل قبل النشر",
+      "version": "1.0.0",
+      "scope": "10 فئات × 200+ فحص",
+      "target": ["QA", "DevOps", "Security", "Tech Lead"],
+      "estimated_time": "3-5 أيام عمل",
+      "gate_rule": "لا نشر بدون 100% اجتياز الفحوصات الحرجة"
+    },
+
+    "overview": {
+      "philosophy": "الفحص الشامل قبل النشر يمنع 90% من الحوادث بعد الإطلاق",
+      "categories": [
+        { "id": "functional", "name": "الفحص الوظيفي", "priority": "critical" },
+        { "id": "security", "name": "فحص الأمان", "priority": "critical" },
+        { "id": "performance", "name": "فحص الأداء", "priority": "critical" },
+        { "id": "data_integrity", "name": "فحص سلامة البيانات", "priority": "critical" },
+        { "id": "isolation", "name": "فحص العزل بين الأدوار", "priority": "critical" },
+        { "id": "integration", "name": "فحص التكاملات الخارجية", "priority": "high" },
+        { "id": "ux_accessibility", "name": "فحص تجربة المستخدم", "priority": "high" },
+        { "id": "seo", "name": "فحص SEO", "priority": "medium" },
+        { "id": "infrastructure", "name": "فحص البنية التحتية", "priority": "high" },
+        { "id": "documentation", "name": "فحص التوثيق", "priority": "medium" }
+      ],
+      "severity_levels": {
+        "critical": "🚨 يمنع النشر — يجب إصلاحه فوراً",
+        "high": "⚠️ يجب إصلاحه قبل النشر",
+        "medium": "📌 يُفضّل إصلاحه",
+        "low": "💡 ملاحظة للتحسين المستقبلي"
+      }
+    },
+
+    "1_functional_audit": {
+      "name": "الفحص الوظيفي — Functional Audit",
+      "priority": "critical",
+      "estimated_time": "1-2 يوم",
+      "coverage_target": "100% من الـ features",
+
+      "test_scenarios": {
+        "authentication": [
+          { "id": "AUTH-01", "test": "تسجيل مستخدم جديد → تأكيد بريد → دخول", "expected": "user created + email sent + login works", "severity": "critical" },
+          { "id": "AUTH-02", "test": "دخول بكلمة مرور خاطئة 10 مرات", "expected": "429 rate limit after 10 attempts", "severity": "critical" },
+          { "id": "AUTH-03", "test": "Refresh token expired", "expected": "logout + redirect to /login", "severity": "critical" },
+          { "id": "AUTH-04", "test": "Session hijack (fingerprint mismatch)", "expected": "session invalidated + alert", "severity": "critical" },
+          { "id": "AUTH-05", "test": "Password reset flow كامل", "expected": "email + token + new password works", "severity": "critical" },
+          { "id": "AUTH-06", "test": "2FA enable + login with OTP", "expected": "OTP required + verified", "severity": "high" },
+          { "id": "AUTH-07", "test": "Logout-all-devices", "expected": "all sessions killed", "severity": "high" }
+        ],
+
+        "users_management": [
+          { "id": "USER-01", "test": "Admin creates user with all roles", "expected": "user created + email sent", "severity": "critical" },
+          { "id": "USER-02", "test": "Admin cannot delete self", "expected": "400 error", "severity": "critical" },
+          { "id": "USER-03", "test": "Deactivate user → cannot login", "expected": "403 error", "severity": "high" },
+          { "id": "USER-04", "test": "Role change triggers session invalidation", "expected": "user must re-login", "severity": "high" }
+        ],
+
+        "cases": [
+          { "id": "CASE-01", "test": "Create case with valid data", "expected": "case created + number auto-generated", "severity": "critical" },
+          { "id": "CASE-02", "test": "Case status transitions (open → closed)", "expected": "closedAt set", "severity": "high" },
+          { "id": "CASE-03", "test": "Search cases by number/title", "expected": "correct results", "severity": "high" },
+          { "id": "CASE-04", "test": "Delete case with documents", "expected": "cascade or block", "severity": "high" },
+          { "id": "CASE-05", "test": "Assign lawyer to case", "expected": "lawyer can access", "severity": "high" }
+        ],
+
+        "clients": [
+          { "id": "CLIENT-01", "test": "Create client (individual + company)", "expected": "both work", "severity": "high" },
+          { "id": "CLIENT-02", "test": "Client-User linkage", "expected": "client login shows own data", "severity": "critical" },
+          { "id": "CLIENT-03", "test": "Delete client with cases", "expected": "409 conflict", "severity": "high" }
+        ],
+
+        "documents": [
+          { "id": "DOC-01", "test": "Upload PDF (5MB)", "expected": "success", "severity": "high" },
+          { "id": "DOC-02", "test": "Upload .exe file", "expected": "400 blocked", "severity": "critical" },
+          { "id": "DOC-03", "test": "Upload > 10MB", "expected": "400 rejected", "severity": "high" },
+          { "id": "DOC-04", "test": "Download other user's file", "expected": "404 not found", "severity": "critical" },
+          { "id": "DOC-05", "test": "Quota exceeded (500MB)", "expected": "429 error", "severity": "medium" }
+        ],
+
+        "invoices": [
+          { "id": "INV-01", "test": "Create invoice → total = amount + tax", "expected": "correct calculation", "severity": "critical" },
+          { "id": "INV-02", "test": "Invoice number uniqueness", "expected": "no duplicates", "severity": "critical" },
+          { "id": "INV-03", "test": "Mark as paid → paidAt set", "expected": "correct", "severity": "high" },
+          { "id": "INV-04", "test": "Overdue auto-set by cron", "expected": "status changes", "severity": "high" },
+          { "id": "INV-05", "test": "PayPal payment flow end-to-end", "expected": "captured + invoice paid", "severity": "critical" }
+        ],
+
+        "appointments": [
+          { "id": "APPT-01", "test": "Create appointment", "expected": "success", "severity": "high" },
+          { "id": "APPT-02", "test": "Conflict detection (same lawyer + time)", "expected": "409 error", "severity": "critical" },
+          { "id": "APPT-03", "test": "Confirm → WhatsApp sent", "expected": "message delivered", "severity": "high" },
+          { "id": "APPT-04", "test": "Reminder 1h before", "expected": "SMS sent", "severity": "high" }
+        ],
+
+        "tasks": [
+          { "id": "TASK-01", "test": "Create + assign task", "expected": "assignee notified", "severity": "high" },
+          { "id": "TASK-02", "test": "Kanban drag-drop status change", "expected": "persisted", "severity": "medium" },
+          { "id": "TASK-03", "test": "Complete task → notifies creator", "expected": "notification received", "severity": "high" }
+        ],
+
+        "notifications": [
+          { "id": "NOTIF-01", "test": "In-app notification appears in bell", "expected": "realtime + count updated", "severity": "critical" },
+          { "id": "NOTIF-02", "test": "Email sent for critical event", "expected": "delivered < 30s", "severity": "critical" },
+          { "id": "NOTIF-03", "test": "Push notification appears in OS", "expected": "browser shows notification", "severity": "high" },
+          { "id": "NOTIF-04", "test": "Quiet hours respected", "expected": "SMS delayed to morning", "severity": "high" },
+          { "id": "NOTIF-05", "test": "Rate limit prevents spam", "expected": "after 5 SMS, blocked", "severity": "high" }
+        ],
+
+        "chat": [
+          { "id": "CHAT-01", "test": "Send message < 200ms", "expected": "realtime delivery", "severity": "high" },
+          { "id": "CHAT-02", "test": "Cannot read other rooms", "expected": "403 forbidden", "severity": "critical" },
+          { "id": "CHAT-03", "test": "Typing indicator works", "expected": "shows for 3s", "severity": "medium" },
+          { "id": "CHAT-04", "test": "File sharing in chat", "expected": "uploaded + accessible", "severity": "high" }
+        ],
+
+        "reports": [
+          { "id": "REP-01", "test": "Dashboard stats accurate", "expected": "matches DB counts", "severity": "critical" },
+          { "id": "REP-02", "test": "PDF export (Arabic)", "expected": "correct Arabic rendering", "severity": "high" },
+          { "id": "REP-03", "test": "Excel export (Arabic)", "expected": "opens correctly", "severity": "high" },
+          { "id": "REP-04", "test": "Financial report period filter", "expected": "correct data", "severity": "high" }
+        ],
+
+        "public_pages": [
+          { "id": "PUB-01", "test": "Home page loads < 2s", "expected": "fast", "severity": "critical" },
+          { "id": "PUB-02", "test": "Contact form submits + saves", "expected": "DB record + email sent", "severity": "critical" },
+          { "id": "PUB-03", "test": "Services load from DB", "expected": "not hardcoded", "severity": "high" },
+          { "id": "PUB-04", "test": "SEO meta tags present", "expected": "view-source shows correct", "severity": "high" },
+          { "id": "PUB-05", "test": "Honeypot blocks bots", "expected": "fake 201 but no save", "severity": "high" }
+        ],
+
+        "admin_settings": [
+          { "id": "SET-01", "test": "Email config test → save", "expected": "connection verified + saved encrypted", "severity": "critical" },
+          { "id": "SET-02", "test": "SMS test → save", "expected": "SMS delivered + env updated", "severity": "critical" },
+          { "id": "SET-03", "test": "WhatsApp test → save", "expected": "message delivered", "severity": "high" },
+          { "id": "SET-04", "test": "PayPal test + save with 2FA", "expected": "order created + saved", "severity": "critical" },
+          { "id": "SET-05", "test": "Templates CRUD + preview + test", "expected": "all work", "severity": "critical" },
+          { "id": "SET-06", "test": "Usage matrix toggle event × service", "expected": "persisted + applied", "severity": "high" },
+          { "id": "SET-07", "test": "Public pages edit + publish", "expected": "changes appear < 5s", "severity": "high" },
+          { "id": "SET-08", "test": "Footer edit + publish", "expected": "updates everywhere", "severity": "high" },
+          { "id": "SET-09", "test": "SEO edit + publish", "expected": "meta tags updated", "severity": "high" }
+        ]
+      },
+
+      "coverage_matrix": {
+        "total_test_scenarios": 65,
+        "critical": 30,
+        "high": 28,
+        "medium": 7,
+        "pass_threshold": "100% critical + 100% high"
+      }
+    },
+
+    "2_security_audit": {
+      "name": "فحص الأمان — Security Audit",
+      "priority": "critical",
+      "estimated_time": "1 يوم",
+
+      "checks": {
+        "authentication": [
+          { "id": "SEC-01", "test": "JWT secrets are 64+ chars", "expected": "verified in env", "severity": "critical" },
+          { "id": "SEC-02", "test": "Passwords hashed (bcrypt 12)", "expected": "no plaintext in DB", "severity": "critical" },
+          { "id": "SEC-03", "test": "Session tokens not in localStorage", "expected": "httpOnly cookies only", "severity": "critical" },
+          { "id": "SEC-04", "test": "Refresh token rotation works", "expected": "new refresh on each use", "severity": "critical" },
+          { "id": "SEC-05", "test": "Fingerprint check on sensitive ops", "expected": "blocks session hijack", "severity": "critical" },
+          { "id": "SEC-06", "test": "2FA for critical ops (PayPal)", "expected": "OTP required", "severity": "high" },
+          { "id": "SEC-07", "test": "Rate limiting on auth", "expected": "10 attempts / 15min", "severity": "critical" },
+          { "id": "SEC-08", "test": "Account lockout after failures", "expected": "20 failed → 15min lock", "severity": "high" }
+        ],
+
+        "authorization": [
+          { "id": "SEC-09", "test": "No endpoint without auth (except public)", "expected": "all protected", "severity": "critical" },
+          { "id": "SEC-10", "test": "Role check on every endpoint", "expected": "403 for wrong role", "severity": "critical" },
+          { "id": "SEC-11", "test": "Client cannot access admin endpoints", "expected": "403", "severity": "critical" },
+          { "id": "SEC-12", "test": "Direct API call bypasses UI", "expected": "still enforced", "severity": "critical" }
+        ],
+
+        "input_validation": [
+          { "id": "SEC-13", "test": "SQL injection attempts", "expected": "blocked by Prisma", "severity": "critical" },
+          { "id": "SEC-14", "test": "XSS in form inputs", "expected": "escaped in output", "severity": "critical" },
+          { "id": "SEC-15", "test": "XSS in template body", "expected": "sanitized", "severity": "critical" },
+          { "id": "SEC-16", "test": "Path traversal in file download", "expected": "blocked", "severity": "critical" },
+          { "id": "SEC-17", "test": "File upload content-type spoofing", "expected": "MIME verified", "severity": "critical" },
+          { "id": "SEC-18", "test": "CSRF on state-changing endpoints", "expected": "token required", "severity": "critical" },
+          { "id": "SEC-19", "test": "Mass assignment (extra fields)", "expected": "ignored by zod", "severity": "high" }
+        ],
+
+        "secrets_management": [
+          { "id": "SEC-20", "test": "No secrets in code/git", "expected": "git log clean", "severity": "critical" },
+          { "id": "SEC-21", "test": "No secrets in logs", "expected": "pino redacts", "severity": "critical" },
+          { "id": "SEC-22", "test": "No secrets in error responses", "expected": "generic messages", "severity": "critical" },
+          { "id": "SEC-23", "test": "Encrypted env values", "expected": "ENC prefix", "severity": "high" }
+        ],
+
+        "transport": [
+          { "id": "SEC-24", "test": "HTTPS enforced (HSTS)", "expected": "301 redirect http→https", "severity": "critical" },
+          { "id": "SEC-25", "test": "TLS 1.2+ only", "expected": "TLS 1.0/1.1 disabled", "severity": "critical" },
+          { "id": "SEC-26", "test": "SSL grade A+", "expected": "ssllabs.com test", "severity": "high" },
+          { "id": "SEC-27", "test": "Security headers present", "expected": "helmet + CSP + HSTS", "severity": "critical" },
+          { "id": "SEC-28", "test": "CSP allows only necessary", "expected": "self + PayPal + WS", "severity": "critical" }
+        ],
+
+        "data_protection": [
+          { "id": "SEC-29", "test": "PII masked in logs", "expected": "email/phone redacted", "severity": "critical" },
+          { "id": "SEC-30", "test": "Database encrypted at rest", "expected": "verified", "severity": "high" },
+          { "id": "SEC-31", "test": "Backups encrypted", "expected": "AES-256", "severity": "critical" },
+          { "id": "SEC-32", "test": "Audit log complete", "expected": "all writes logged", "severity": "high" }
+        ],
+
+        "infrastructure": [
+          { "id": "SEC-33", "test": "Database not exposed publicly", "expected": "only backend access", "severity": "critical" },
+          { "id": "SEC-34", "test": "Redis password protected", "expected": "requirepass set", "severity": "high" },
+          { "id": "SEC-35", "test": "Docker not running as root", "expected": "nodejs user", "severity": "high" },
+          { "id": "SEC-36", "test": "Dependencies no critical CVEs", "expected": "npm audit clean", "severity": "critical" },
+          { "id": "SEC-37", "test": "SAST scan clean", "expected": "Semgrep 0 critical", "severity": "critical" },
+          { "id": "SEC-38", "test": "DAST scan clean", "expected": "ZAP 0 high", "severity": "critical" }
+        ],
+
+        "compliance": [
+          { "id": "SEC-39", "test": "GDPR: data retention policy", "expected": "documented", "severity": "high" },
+          { "id": "SEC-40", "test": "GDPR: right to erasure", "expected": "delete account works", "severity": "high" },
+          { "id": "SEC-41", "test": "OWASP Top 10 addressed", "expected": "checklist complete", "severity": "critical" },
+          { "id": "SEC-42", "test": "WCAG 2.1 AA compliant", "expected": "axe 0 violations", "severity": "high" }
+        ]
+      },
+
+      "penetration_tests": {
+        "tools": ["OWASP ZAP", "Burp Suite", "Nikto", "SQLMap", "XSStrike"],
+        "scenarios": [
+          "Login brute force (rate limit test)",
+          "Session fixation",
+          "Privilege escalation",
+          "IDOR (Insecure Direct Object Reference)",
+          "Mass assignment",
+          "Business logic flaws",
+          "File upload bypass"
+        ],
+        "deliverable": "Penetration report with findings + fixes"
+      },
+
+      "coverage_matrix": {
+        "total_checks": 42,
+        "critical": 30,
+        "high": 10,
+        "medium": 2,
+        "pass_threshold": "100% critical + 100% high"
+      }
+    },
+
+    "3_performance_audit": {
+      "name": "فحص الأداء — Performance Audit",
+      "priority": "critical",
+      "estimated_time": "1 يوم",
+
+      "checks": {
+        "api_performance": [
+          { "id": "PERF-01", "test": "GET /api/cases (100 records)", "target": "< 200ms p95", "severity": "critical" },
+          { "id": "PERF-02", "test": "POST /api/cases", "target": "< 300ms p95", "severity": "critical" },
+          { "id": "PERF-03", "test": "GET /api/reports/dashboard", "target": "< 500ms p95", "severity": "critical" },
+          { "id": "PERF-04", "test": "POST /api/auth/login", "target": "< 400ms p95", "severity": "critical" },
+          { "id": "PERF-05", "test": "GET /api/notifications (50)", "target": "< 100ms p95", "severity": "high" }
+        ],
+
+        "database_performance": [
+          { "id": "PERF-06", "test": "All indexes used in queries", "target": "EXPLAIN ANALYZE", "severity": "critical" },
+          { "id": "PERF-07", "test": "No N+1 queries", "target": "query count < 10 per request", "severity": "critical" },
+          { "id": "PERF-08", "test": "Slow query log empty", "target": "no query > 100ms", "severity": "high" },
+          { "id": "PERF-09", "test": "Connection pool healthy", "target": "< 80% used", "severity": "high" }
+        ],
+
+        "frontend_performance": [
+          { "id": "PERF-10", "test": "Lighthouse Performance (Home)", "target": "> 90", "severity": "critical" },
+          { "id": "PERF-11", "test": "Lighthouse Performance (Dashboard)", "target": "> 85", "severity": "high" },
+          { "id": "PERF-12", "test": "FCP (First Contentful Paint)", "target": "< 1.5s", "severity": "high" },
+          { "id": "PERF-13", "test": "LCP (Largest Contentful Paint)", "target": "< 2.5s", "severity": "critical" },
+          { "id": "PERF-14", "test": "TTI (Time to Interactive)", "target": "< 3.5s", "severity": "high" },
+          { "id": "PERF-15", "test": "CLS (Cumulative Layout Shift)", "target": "< 0.1", "severity": "high" },
+          { "id": "PERF-16", "test": "Bundle size (JS)", "target": "< 500KB gzipped", "severity": "high" },
+          { "id": "PERF-17", "test": "Code splitting works", "target": "per-route chunks", "severity": "medium" },
+          { "id": "PERF-18", "test": "Images lazy-loaded", "target": "all below-fold", "severity": "medium" }
+        ],
+
+        "load_testing": [
+          { "id": "PERF-19", "test": "1000 concurrent users", "target": "p95 < 500ms", "severity": "critical" },
+          { "id": "PERF-20", "test": "Error rate at load", "target": "< 0.1%", "severity": "critical" },
+          { "id": "PERF-21", "test": "Database CPU at load", "target": "< 80%", "severity": "high" },
+          { "id": "PERF-22", "test": "Memory stable (no leak)", "target": "after 1h", "severity": "high" }
+        ],
+
+        "cache_performance": [
+          { "id": "PERF-23", "test": "Redis hit rate", "target": "> 80%", "severity": "high" },
+          { "id": "PERF-24", "test": "Cache invalidation works", "target": "on data change", "severity": "critical" },
+          { "id": "PERF-25", "test": "Cache TTLs correct", "target": "as configured", "severity": "high" }
+        ],
+
+        "realtime_performance": [
+          { "id": "PERF-26", "test": "Socket.IO message latency", "target": "< 200ms", "severity": "critical" },
+          { "id": "PERF-27", "test": "Socket.IO reconnect < 5s", "target": "verified", "severity": "high" },
+          { "id": "PERF-28", "test": "1000 concurrent sockets", "target": "stable", "severity": "high" }
+        ]
+      },
+
+      "tools": ["k6", "Artillery", "Lighthouse CI", "WebPageTest", "Chrome DevTools"],
+      "coverage_matrix": {
+        "total_checks": 28,
+        "critical": 12,
+        "high": 12,
+        "medium": 4,
+        "pass_threshold": "100% critical + 90% high"
+      }
+    },
+
+    "4_data_integrity_audit": {
+      "name": "فحص سلامة البيانات — Data Integrity",
+      "priority": "critical",
+      "estimated_time": "0.5 يوم",
+
+      "checks": {
+        "schema_integrity": [
+          { "id": "DATA-01", "test": "All migrations applied", "expected": "prisma migrate status = clean", "severity": "critical" },
+          { "id": "DATA-02", "test": "All foreign keys enforced", "expected": "no orphans", "severity": "critical" },
+          { "id": "DATA-03", "test": "All unique constraints work", "expected": "duplicate insert fails", "severity": "critical" },
+          { "id": "DATA-04", "test": "All indexes present", "expected": "45 indexes match", "severity": "critical" }
+        ],
+
+        "business_rules": [
+          { "id": "DATA-05", "test": "Case number auto-increments", "expected": "CASE-YYYY-NNNN format", "severity": "critical" },
+          { "id": "DATA-06", "test": "Invoice total = amount + tax", "expected": "calculated correctly", "severity": "critical" },
+          { "id": "DATA-07", "test": "Client email unique", "expected": "409 on duplicate", "severity": "critical" },
+          { "id": "DATA-08", "test": "Case closedAt set when status=closed", "expected": "auto", "severity": "high" }
+        ],
+
+        "cascade_rules": [
+          { "id": "DATA-09", "test": "Delete user → sessions cascade", "expected": "all sessions deleted", "severity": "critical" },
+          { "id": "DATA-10", "test": "Delete case → documents SET NULL", "expected": "docs detached", "severity": "high" },
+          { "id": "DATA-11", "test": "Delete chat room → messages cascade", "expected": "all messages deleted", "severity": "high" }
+        ],
+
+        "data_consistency": [
+          { "id": "DATA-12", "test": "Audit log for all writes", "expected": "complete trail", "severity": "critical" },
+          { "id": "DATA-13", "test": "Notification delivered matches DB", "expected": "sync", "severity": "high" },
+          { "id": "DATA-14", "test": "Payment recorded matches PayPal", "expected": "verified", "severity": "critical" }
+        ]
+      },
+
+      "verification_queries": [
+        "SELECT COUNT(*) FROM cases WHERE lawyerId NOT IN (SELECT id FROM users WHERE role = 'lawyer')",
+        "SELECT COUNT(*) FROM invoices WHERE total != amount + tax",
+        "SELECT COUNT(*) FROM sessions WHERE expiresAt < NOW()",
+        "SELECT * FROM notifications WHERE readAt < createdAt",
+        "SELECT COUNT(*) FROM users WHERE email IS NULL OR email = ''"
+      ],
+
+      "coverage_matrix": {
+        "total_checks": 14,
+        "critical": 8,
+        "high": 5,
+        "medium": 1,
+        "pass_threshold": "100%"
+      }
+    },
+
+    "5_isolation_audit": {
+      "name": "فحص العزل بين الأدوار — Isolation Audit",
+      "priority": "critical",
+      "estimated_time": "1 يوم",
+      "critical_note": "🚨 أهم فحص — أي خلل = خرق بيانات",
+
+      "test_scenarios": {
+        "client_isolation": [
+          { "id": "ISO-01", "test": "Client A cannot see Client B's cases", "expected": "404", "severity": "critical" },
+          { "id": "ISO-02", "test": "Client A cannot see Client B's invoices", "expected": "404", "severity": "critical" },
+          { "id": "ISO-03", "test": "Client A cannot download Client B's documents", "expected": "404", "severity": "critical" },
+          { "id": "ISO-04", "test": "Client A cannot see Client B's appointments", "expected": "404", "severity": "critical" },
+          { "id": "ISO-05", "test": "Client cannot access /users", "expected": "403", "severity": "critical" },
+          { "id": "ISO-06", "test": "Client cannot access other's chat rooms", "expected": "403", "severity": "critical" },
+          { "id": "ISO-07", "test": "Client cannot modify own invoice amount", "expected": "only status=paid", "severity": "critical" },
+          { "id": "ISO-08", "test": "Client cannot see other's notifications", "expected": "empty list", "severity": "critical" }
+        ],
+
+        "lawyer_isolation": [
+          { "id": "ISO-09", "test": "Lawyer A cannot see Lawyer B's cases", "expected": "404", "severity": "critical" },
+          { "id": "ISO-10", "test": "Lawyer cannot edit other's cases", "expected": "403", "severity": "critical" },
+          { "id": "ISO-11", "test": "Lawyer cannot see other's appointments", "expected": "empty", "severity": "critical" },
+          { "id": "ISO-12", "test": "Lawyer sees only own tasks", "expected": "filtered", "severity": "critical" }
+        ],
+
+        "assistant_isolation": [
+          { "id": "ISO-13", "test": "Assistant sees only assigned tasks", "expected": "filtered", "severity": "critical" },
+          { "id": "ISO-14", "test": "Assistant cannot edit other's tasks", "expected": "403", "severity": "critical" },
+          { "id": "ISO-15", "test": "Assistant uploads only own documents", "expected": "restricted", "severity": "high" }
+        ],
+
+        "accountant_isolation": [
+          { "id": "ISO-16", "test": "Accountant sees all invoices", "expected": "full access", "severity": "high" },
+          { "id": "ISO-17", "test": "Accountant cannot see case details beyond invoice", "expected": "restricted", "severity": "high" }
+        ],
+
+        "secretary_isolation": [
+          { "id": "ISO-18", "test": "Secretary sees all appointments", "expected": "full access", "severity": "high" },
+          { "id": "ISO-19", "test": "Secretary cannot edit cases", "expected": "403", "severity": "high" }
+        ],
+
+        "admin_access": [
+          { "id": "ISO-20", "test": "Admin sees all data", "expected": "full access", "severity": "high" }
+        ],
+
+        "cross_tenant": [
+          { "id": "ISO-21", "test": "Client cannot infer existence via 403 vs 404", "expected": "always 404", "severity": "critical" },
+          { "id": "ISO-22", "test": "URL manipulation (change ID)", "expected": "not found", "severity": "critical" },
+          { "id": "ISO-23", "test": "API direct call bypasses UI", "expected": "still isolated", "severity": "critical" }
+        ]
+      },
+
+      "automated_tests": {
+        "framework": "Jest + Supertest",
+        "test_files": "src/__tests__/isolation/",
+        "total_test_cases": 210,
+        "coverage": "100% من endpoints CRUD"
+      },
+
+      "coverage_matrix": {
+        "total_scenarios": 23,
+        "critical": 15,
+        "high": 8,
+        "pass_threshold": "100% — لا استثناءات"
+      }
+    },
+
+    "6_integration_audit": {
+      "name": "فحص التكاملات الخارجية",
+      "priority": "high",
+      "estimated_time": "1 يوم",
+
+      "checks": {
+        "email": [
+          { "id": "INT-01", "test": "SMTP connection", "expected": "verify() passes", "severity": "critical" },
+          { "id": "INT-02", "test": "Send test email", "expected": "delivered < 30s", "severity": "critical" },
+          { "id": "INT-03", "test": "Verify email template", "expected": "renders Arabic correctly", "severity": "high" },
+          { "id": "INT-04", "test": "Bounce handling", "expected": "logged + retried", "severity": "medium" }
+        ],
+
+        "sms": [
+          { "id": "INT-05", "test": "Twilio connection", "expected": "account verified", "severity": "critical" },
+          { "id": "INT-06", "test": "Send test SMS", "expected": "delivered", "severity": "critical" },
+          { "id": "INT-07", "test": "Rate limit protection", "expected": "10/sec max", "severity": "high" }
+        ],
+
+        "whatsapp": [
+          { "id": "INT-08", "test": "Meta API connection", "expected": "verified", "severity": "critical" },
+          { "id": "INT-09", "test": "Template approved + send", "expected": "delivered", "severity": "critical" },
+          { "id": "INT-10", "test": "24h window respected", "expected": "template only outside", "severity": "high" }
+        ],
+
+        "paypal": [
+          { "id": "INT-11", "test": "Create order (sandbox)", "expected": "approveUrl returned", "severity": "critical" },
+          { "id": "INT-12", "test": "Capture order", "expected": "payment captured", "severity": "critical" },
+          { "id": "INT-13", "test": "Webhook verification", "expected": "signature valid", "severity": "critical" },
+          { "id": "INT-14", "test": "Refund flow", "expected": "works", "severity": "high" }
+        ],
+
+        "push": [
+          { "id": "INT-15", "test": "VAPID keys valid", "expected": "verified", "severity": "critical" },
+          { "id": "INT-16", "test": "Send push notification", "expected": "appears in browser", "severity": "high" },
+          { "id": "INT-17", "test": "Subscription renewal", "expected": "auto-updated", "severity": "medium" }
+        ],
+
+        "socket_io": [
+          { "id": "INT-18", "test": "Connection with auth", "expected": "works", "severity": "critical" },
+          { "id": "INT-19", "test": "Reconnect after disconnect", "expected": "< 5s", "severity": "critical" },
+          { "id": "INT-20", "test": "Redis adapter scaling", "expected": "cross-instance works", "severity": "high" }
+        ]
+      },
+
+      "sandbox_vs_live": {
+        "warning": "🚨 لا تنتقل إلى Live قبل اختبار كامل في Sandbox",
+        "checklist": [
+          "PayPal: full payment flow tested in sandbox",
+          "WhatsApp: templates approved + tested",
+          "SMS: verified phone numbers in Twilio",
+          "Email: SPF/DKIM/DMARC configured",
+          "Push: VAPID keys in production env"
+        ]
+      },
+
+      "coverage_matrix": {
+        "total_checks": 20,
+        "critical": 10,
+        "high": 8,
+        "medium": 2,
+        "pass_threshold": "100% critical + 100% high"
+      }
+    },
+
+    "7_ux_accessibility_audit": {
+      "name": "فحص تجربة المستخدم وإمكانية الوصول",
+      "priority": "high",
+      "estimated_time": "1 يوم",
+
+      "checks": {
+        "accessibility": [
+          { "id": "UX-01", "test": "WCAG 2.1 AA compliance", "expected": "axe-core 0 violations", "severity": "critical" },
+          { "id": "UX-02", "test": "Keyboard navigation works everywhere", "expected": "tab order logical", "severity": "critical" },
+          { "id": "UX-03", "test": "Focus indicators visible", "expected": "2px outline", "severity": "high" },
+          { "id": "UX-04", "test": "Screen reader (NVDA/VoiceOver)", "expected": "content announced", "severity": "high" },
+          { "id": "UX-05", "test": "Color contrast >= 4.5:1", "expected": "all text", "severity": "critical" },
+          { "id": "UX-06", "test": "Images have alt text", "expected": "all images", "severity": "high" },
+          { "id": "UX-07", "test": "ARIA labels on icons", "expected": "every icon button", "severity": "high" },
+          { "id": "UX-08", "test": "Skip to content link", "expected": "works", "severity": "medium" }
+        ],
+
+        "responsive": [
+          { "id": "UX-09", "test": "Mobile (375px) all pages", "expected": "usable", "severity": "critical" },
+          { "id": "UX-10", "test": "Tablet (768px)", "expected": "usable", "severity": "high" },
+          { "id": "UX-11", "test": "Desktop (1440px)", "expected": "optimal", "severity": "high" },
+          { "id": "UX-12", "test": "Touch targets >= 44px", "expected": "verified", "severity": "high" }
+        ],
+
+        "i18n": [
+          { "id": "UX-13", "test": "Arabic (RTL) renders correctly", "expected": "all pages", "severity": "critical" },
+          { "id": "UX-14", "test": "English (LTR) renders correctly", "expected": "all pages", "severity": "critical" },
+          { "id": "UX-15", "test": "Language switch persists", "expected": "localStorage + DB", "severity": "high" },
+          { "id": "UX-16", "test": "Dates/numbers localized", "expected": "Intl API", "severity": "high" }
+        ],
+
+        "theme": [
+          { "id": "UX-17", "test": "Light mode all pages", "expected": "correct colors", "severity": "high" },
+          { "id": "UX-18", "test": "Dark mode all pages", "expected": "correct contrast", "severity": "high" },
+          { "id": "UX-19", "test": "Theme persists", "expected": "localStorage + DB", "severity": "medium" }
+        ],
+
+        "error_states": [
+          { "id": "UX-20", "test": "404 page helpful", "expected": "with navigation", "severity": "high" },
+          { "id": "UX-21", "test": "500 page graceful", "expected": "no stack trace", "severity": "critical" },
+          { "id": "UX-22", "test": "Network error handling", "expected": "retry + message", "severity": "high" },
+          { "id": "UX-23", "test": "Empty states helpful", "expected": "with CTA", "severity": "high" }
+        ],
+
+        "forms": [
+          { "id": "UX-24", "test": "Inline validation on blur", "expected": "immediate feedback", "severity": "high" },
+          { "id": "UX-25", "test": "Error messages clear", "expected": "actionable", "severity": "high" },
+          { "id": "UX-26", "test": "Autofill works", "expected": "correct fields", "severity": "medium" },
+          { "id": "UX-27", "test": "Loading states", "expected": "skeleton/spinner", "severity": "high" }
+        ]
+      },
+
+      "tools": ["axe DevTools", "Lighthouse", "WAVE", "NVDA", "VoiceOver"],
+      "coverage_matrix": {
+        "total_checks": 27,
+        "critical": 7,
+        "high": 15,
+        "medium": 5,
+        "pass_threshold": "100% critical + 90% high"
+      }
+    },
+
+    "8_seo_audit": {
+      "name": "فحص SEO",
+      "priority": "medium",
+      "estimated_time": "0.5 يوم",
+
+      "checks": {
+        "meta_tags": [
+          { "id": "SEO-01", "test": "Every page has unique title", "expected": "50-60 chars", "severity": "critical" },
+          { "id": "SEO-02", "test": "Every page has description", "expected": "150-160 chars", "severity": "critical" },
+          { "id": "SEO-03", "test": "OG tags present", "expected": "og:title, og:image, og:description", "severity": "high" },
+          { "id": "SEO-04", "test": "Twitter cards", "expected": "twitter:card", "severity": "medium" },
+          { "id": "SEO-05", "test": "Canonical URL", "expected": "present on each page", "severity": "high" }
+        ],
+
+        "technical_seo": [
+          { "id": "SEO-06", "test": "sitemap.xml accessible", "expected": "200 + valid XML", "severity": "critical" },
+          { "id": "SEO-07", "test": "robots.txt correct", "expected": "disallow admin/api", "severity": "critical" },
+          { "id": "SEO-08", "test": "hreflang tags (AR/EN)", "expected": "present", "severity": "high" },
+          { "id": "SEO-09", "test": "Structured data valid", "expected": "Rich Results Test", "severity": "high" },
+          { "id": "SEO-10", "test": "No broken internal links", "expected": "0 broken", "severity": "high" },
+          { "id": "SEO-11", "test": "HTTP → HTTPS redirect", "expected": "301", "severity": "critical" }
+        ],
+
+        "content": [
+          { "id": "SEO-12", "test": "One H1 per page", "expected": "verified", "severity": "high" },
+          { "id": "SEO-13", "test": "Logical heading hierarchy", "expected": "H1→H2→H3", "severity": "high" },
+          { "id": "SEO-14", "test": "Images have alt text", "expected": "all", "severity": "high" },
+          { "id": "SEO-15", "test": "Page load < 3s", "expected": "Core Web Vitals pass", "severity": "critical" }
+        ]
+      },
+
+      "tools": ["Google Search Console", "Lighthouse SEO", "Ahrefs/SEMrush", "Rich Results Test"],
+      "coverage_matrix": {
+        "total_checks": 15,
+        "critical": 6,
+        "high": 7,
+        "medium": 2,
+        "pass_threshold": "100% critical + 90% high"
+      }
+    },
+
+    "9_infrastructure_audit": {
+      "name": "فحص البنية التحتية",
+      "priority": "high",
+      "estimated_time": "0.5 يوم",
+
+      "checks": {
+        "server": [
+          { "id": "INF-01", "test": "Server resources sufficient", "expected": "CPU < 50% idle", "severity": "high" },
+          { "id": "INF-02", "test": "Disk space available", "expected": "> 30% free", "severity": "critical" },
+          { "id": "INF-03", "test": "RAM sufficient", "expected": "> 40% free", "severity": "high" },
+          { "id": "INF-04", "test": "Timezone correct", "expected": "Asia/Riyadh", "severity": "medium" },
+          { "id": "INF-05", "test": "NTP sync", "expected": "time synced", "severity": "high" }
+        ],
+
+        "docker": [
+          { "id": "INF-06", "test": "All containers running", "expected": "healthy status", "severity": "critical" },
+          { "id": "INF-07", "test": "Container healthchecks", "expected": "all pass", "severity": "critical" },
+          { "id": "INF-08", "test": "Restart policy", "expected": "unless-stopped", "severity": "high" },
+          { "id": "INF-09", "test": "Volumes persist", "expected": "data survives restart", "severity": "critical" },
+          { "id": "INF-10", "test": "Logs rotating", "expected": "no disk fill", "severity": "high" }
+        ],
+
+        "network": [
+          { "id": "INF-11", "test": "Firewall rules correct", "expected": "only 22/80/443", "severity": "critical" },
+          { "id": "INF-12", "test": "DNS resolution", "expected": "fast + correct", "severity": "critical" },
+          { "id": "INF-13", "test": "SSL certificates valid", "expected": "no expiry in 30d", "severity": "critical" },
+          { "id": "INF-14", "test": "Auto-renewal configured", "expected": "certbot cron", "severity": "high" }
+        ],
+
+        "backup": [
+          { "id": "INF-15", "test": "Automated backups running", "expected": "daily job", "severity": "critical" },
+          { "id": "INF-16", "test": "Backup restore tested", "expected": "verified success", "severity": "critical" },
+          { "id": "INF-17", "test": "Backup stored offsite", "expected": "S3 bucket", "severity": "critical" },
+          { "id": "INF-18", "test": "Backup encrypted", "expected": "AES-256", "severity": "critical" }
+        ],
+
+        "monitoring": [
+          { "id": "INF-19", "test": "Monitoring active", "expected": "Prometheus scraping", "severity": "critical" },
+          { "id": "INF-20", "test": "Alerts configured", "expected": "test alert sent", "severity": "critical" },
+          { "id": "INF-21", "test": "Log aggregation works", "expected": "Loki receiving", "severity": "high" },
+          { "id": "INF-22", "test": "Sentry catching errors", "expected": "test error visible", "severity": "critical" }
+        ],
+
+        "deployment": [
+          { "id": "INF-23", "test": "CI/CD pipeline works", "expected": "test deploy to staging", "severity": "critical" },
+          { "id": "INF-24", "test": "Rollback tested", "expected": "< 5 min to revert", "severity": "critical" },
+          { "id": "INF-25", "test": "Zero-downtime deploy verified", "expected": "blue-green works", "severity": "critical" }
+        ]
+      },
+
+      "coverage_matrix": {
+        "total_checks": 25,
+        "critical": 14,
+        "high": 9,
+        "medium": 2,
+        "pass_threshold": "100% critical + 100% high"
+      }
+    },
+
+    "10_documentation_audit": {
+      "name": "فحص التوثيق",
+      "priority": "medium",
+      "estimated_time": "0.5 يوم",
+
+      "checks": {
+        "technical_docs": [
+          { "id": "DOC-01", "test": "README complete", "expected": "setup + run + deploy", "severity": "high" },
+          { "id": "DOC-02", "test": "API docs (OpenAPI)", "expected": "all endpoints", "severity": "high" },
+          { "id": "DOC-03", "test": "Database schema documented", "expected": "ERD + fields", "severity": "high" },
+          { "id": "DOC-04", "test": "Environment variables documented", "expected": ".env.example", "severity": "critical" },
+          { "id": "DOC-05", "test": "Deployment guide", "expected": "step-by-step", "severity": "critical" },
+          { "id": "DOC-06", "test": "Runbook (emergencies)", "expected": "10+ scenarios", "severity": "critical" }
+        ],
+
+        "user_docs": [
+          { "id": "DOC-07", "test": "User manual (AR + EN)", "expected": "all 6 roles", "severity": "high" },
+          { "id": "DOC-08", "test": "Admin manual", "expected": "settings + management", "severity": "high" },
+          { "id": "DOC-09", "test": "Video tutorials", "expected": "3-5 videos", "severity": "medium" },
+          { "id": "DOC-10", "test": "FAQ", "expected": "common questions", "severity": "medium" }
+        ],
+
+        "legal_docs": [
+          { "id": "DOC-11", "test": "Privacy Policy", "expected": "GDPR compliant", "severity": "critical" },
+          { "id": "DOC-12", "test": "Terms of Service", "expected": "present", "severity": "critical" },
+          { "id": "DOC-13", "test": "Cookie Policy", "expected": "if using cookies", "severity": "high" },
+          { "id": "DOC-14", "test": "Data retention policy", "expected": "documented", "severity": "high" }
+        ],
+
+        "operational_docs": [
+          { "id": "DOC-15", "test": "Incident response plan", "expected": "documented + tested", "severity": "critical" },
+          { "id": "DOC-16", "test": "Backup/restore procedures", "expected": "step-by-step", "severity": "critical" },
+          { "id": "DOC-17", "test": "On-call rotation", "expected": "defined", "severity": "high" },
+          { "id": "DOC-18", "test": "Contact list", "expected": "all stakeholders", "severity": "high" }
+        ]
+      },
+
+      "coverage_matrix": {
+        "total_checks": 18,
+        "critical": 7,
+        "high": 8,
+        "medium": 3,
+        "pass_threshold": "100% critical + 90% high"
+      }
+    },
+
+    "final_audit_report": {
+      "structure": {
+        "executive_summary": "ملخص تنفيذي + قرار النشر",
+        "test_results": "نتائج كل فحص (pass/fail)",
+        "critical_findings": "قائمة المشاكل الحرجة",
+        "high_findings": "قائمة المشاكل العالية",
+        "recommendations": "توصيات قبل النشر",
+        "sign_off": "توقيع QA Lead + Tech Lead + PM"
+      },
+
+      "go_nogo_decision": {
+        "go": {
+          "conditions": [
+            "100% فحوصات critical اجتازت",
+            "100% فحوصات high اجتازت",
+            "≥ 90% فحوصات medium اجتازت",
+            "لا vulnerabilities حرجة",
+            "لا data leaks في اختبارات العزل"
+          ],
+          "action": "✅ النشر مسموح"
+        },
+        "conditional_go": {
+          "conditions": [
+            "100% critical اجتازت",
+            "≥ 95% high اجتازت",
+            "الباقي لها خطة إصلاح مؤكدة + موعد"
+          ],
+          "action": "⚠️ نشر محدود (beta) مع مراقبة لصيقة"
+        },
+        "no_go": {
+          "conditions": [
+            "أي فحص critical فشل",
+            "أي vulnerability حرجة موجودة",
+            "أي data leak في اختبارات العزل",
+            "لا rollback plan مختبر"
+          ],
+          "action": "🚨 تأجيل النشر + إصلاح فوري"
+        }
+      },
+
+      "timeline": {
+        "day_1": "الفحص الوظيفي + فحص العزل",
+        "day_2": "فحص الأمان + فحص الأداء",
+        "day_3": "فحص البيانات + فحص التكاملات",
+        "day_4": "فحص UX + SEO + البنية التحتية",
+        "day_5": "التوثيق + التقرير النهائي + قرار النشر"
+      },
+
+      "team_responsibilities": {
+        "qa_lead": "الفحص الوظيفي + UX + تقرير",
+        "security_engineer": "فحص الأمان + pen test",
+        "devops": "فحص البنية + Deployment",
+        "tech_lead": "مراجعة النتائج + sign-off",
+        "pm": "الموافقة النهائية على النشر"
+      }
+    },
+
+    "statistics": {
+      "total_audit_checks": 239,
+      "critical": 122,
+      "high": 87,
+      "medium": 30,
+      "categories": 10,
+      "estimated_days": 5,
+      "team_size": "4-5 أشخاص",
+      "tools_count": 20
+    }
+  }
+}

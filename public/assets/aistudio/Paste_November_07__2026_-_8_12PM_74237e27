@@ -1,0 +1,897 @@
+{
+  "file_upload_download_plan": {
+    "metadata": {
+      "title": "مخطط رفع وتنزيل الملفات",
+      "version": "1.0.0",
+      "scope": "Upload + Download + Storage + Security + Preview + Lifecycle",
+      "access_level": "authenticated users (with role-based restrictions)",
+      "storage_strategy": "Local disk (dev) → S3/MinIO (production)",
+      "target": ["AI Studio", "فريق التطوير"]
+    },
+
+    "overview": {
+      "purpose": "نظام موحد لإدارة كل الملفات في النظام بأمان وكفاءة",
+      "features": [
+        "📤 رفع متعدد (single + batch)",
+        "📥 تنزيل مباشر + streaming",
+        "🖼️ معاينة (صور + PDF)",
+        "🔒 عزل حسب الدور والملكية",
+        "📊 تتبع الحصص (quota)",
+        "🔄 الإصدارات (versions)",
+        "🗑️ حذف آمن (soft + hard)",
+        "⚡ CDN للملفات العامة",
+        "🔐 Signed URLs للملفات الحساسة",
+        "🧹 تنظيف تلقائي للملفات اليتيمة"
+      ],
+      "storage_options": {
+        "development": {
+          "provider": "Local Disk",
+          "path": "./uploads",
+          "benefits": ["بسيط", "بدون تكلفة", "سهل debugging"],
+          "limitations": ["لا scalable", "لا backups تلقائية"]
+        },
+        "production": {
+          "provider": "S3-Compatible (AWS S3 / MinIO / R2)",
+          "benefits": ["scalable", "backups", "CDN integration", "signed URLs"],
+          "cost": "~$0.023/GB/month + $0.09/GB transfer"
+        }
+      }
+    },
+
+    "architecture": {
+      "folder_structure": {
+        "src/core/storage": {
+          "files": [
+            "storage.interface.ts",
+            "local.storage.ts",
+            "s3.storage.ts",
+            "storage.factory.ts",
+            "file-validator.ts",
+            "file-quota.service.ts",
+            "virus-scan.service.ts",
+            "image-processor.ts",
+            "signed-url.service.ts"
+          ]
+        },
+        "src/modules/files": {
+          "files": [
+            "files.schema.ts",
+            "files.service.ts",
+            "files.controller.ts",
+            "files.routes.ts",
+            "files-cleanup.job.ts"
+          ]
+        },
+        "src/pages/dashboard/shared": {
+          "files": ["FileManagerPage.tsx"]
+        },
+        "src/components/files": {
+          "files": [
+            "FileUploader.tsx",
+            "FilePreview.tsx",
+            "FileList.tsx",
+            "FileCard.tsx",
+            "ImageCropper.tsx",
+            "PdfPreview.tsx"
+          ]
+        }
+      }
+    },
+
+    "file_types_support": {
+      "documents": {
+        "extensions": ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt"],
+        "max_size_mb": 20,
+        "allowed_mimes": [
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.ms-excel",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-powerpoint",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "text/plain"
+        ],
+        "preview": "PDF only (via pdf.js)"
+      },
+      "images": {
+        "extensions": ["jpg", "jpeg", "png", "webp", "gif", "svg"],
+        "max_size_mb": 10,
+        "allowed_mimes": ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"],
+        "processing": {
+          "thumbnails": ["64x64", "256x256", "1024x1024"],
+          "optimization": "WebP conversion",
+          "strip_metadata": true,
+          "max_dimensions": "4096x4096"
+        },
+        "preview": "native browser"
+      },
+      "videos": {
+        "extensions": ["mp4", "webm"],
+        "max_size_mb": 100,
+        "allowed_mimes": ["video/mp4", "video/webm"],
+        "processing": {
+          "thumbnails": "first frame",
+          "transcoding": "optional (720p)"
+        }
+      },
+      "archives": {
+        "extensions": ["zip", "rar", "7z"],
+        "max_size_mb": 50,
+        "allowed_mimes": ["application/zip", "application/x-rar-compressed", "application/x-7z-compressed"],
+        "preview": "none (download only)"
+      },
+      "blocked": {
+        "extensions": [".exe", ".bat", ".cmd", ".sh", ".js", ".vbs", ".scr", ".msi", ".dll", ".com", ".pif"],
+        "reason": "أمان — منع تنفيذ كود"
+      }
+    },
+
+    "upload_flow": {
+      "client_side": {
+        "step_1": "User يختار ملف (click أو drag-drop)",
+        "step_2": "Client-side validation",
+        "client_checks": [
+          "التحقق من الامتداد",
+          "التحقق من الحجم",
+          "التحقق من MIME (browser)",
+          "معاينة قبل الرفع (لصور)"
+        ],
+        "step_3": "طلب signed URL أو مباشرة multipart",
+        "step_4": "رفع مع progress bar",
+        "step_5": "Cancel ممكن",
+        "step_6": "عرض النتيجة (نجاح/فشل)"
+      },
+      "server_side": {
+        "step_1": "استقبال الملف (multer)",
+        "step_2": "Validation على السيرفر",
+        "server_checks": [
+          "التحقق من MIME (magic bytes)",
+          "التحقق من الحجم",
+          "التحقق من الامتداد (blocked list)",
+          "فحص الفيروسات (ClamAV)",
+          "فحص المحتوى (لا تعليمات برمجية)"
+        ],
+        "step_3": "فحص الحصة (quota)",
+        "step_4": "توليد اسم فريد (UUID)",
+        "step_5": "معالجة (compression للصور + thumbnails)",
+        "step_6": "تخزين (disk أو S3)",
+        "step_7": "حفظ metadata في DB",
+        "step_8": "Audit log",
+        "step_9": "إرجاع metadata"
+      }
+    },
+
+    "storage_abstraction": {
+      "interface": {
+        "name": "IStorageProvider",
+        "methods": [
+          { "name": "upload", "signature": "(file: Buffer, key: string, options?: UploadOptions) => Promise<StoredFile>" },
+          { "name": "download", "signature": "(key: string) => Promise<Buffer>" },
+          { "name": "stream", "signature": "(key: string, range?: string) => ReadStream" },
+          { "name": "delete", "signature": "(key: string) => Promise<void>" },
+          { "name": "exists", "signature": "(key: string) => Promise<boolean>" },
+          { "name": "getUrl", "signature": "(key: string, expiresIn?: number) => Promise<string>" },
+          { "name": "getPublicUrl", "signature": "(key: string) => string" },
+          { "name": "copy", "signature": "(from: string, to: string) => Promise<void>" },
+          { "name": "list", "signature": "(prefix: string) => Promise<StoredFile[]>" }
+        ]
+      },
+      "implementations": {
+        "local": {
+          "class": "LocalStorageProvider",
+          "config": {
+            "basePath": "./uploads",
+            "publicUrl": "/uploads"
+          },
+          "features": ["simple", "no external dependency", "good for dev"]
+        },
+        "s3": {
+          "class": "S3StorageProvider",
+          "config": {
+            "region": "us-east-1",
+            "bucket": "lawfirm-files",
+            "endpoint": "optional (for MinIO)",
+            "accessKeyId": "from env",
+            "secretAccessKey": "from env"
+          },
+          "features": ["scalable", "signed URLs", "CDN integration", "lifecycle policies"]
+        }
+      },
+      "factory": {
+        "logic": "Based on STORAGE_PROVIDER env var (local | s3), instantiate appropriate provider"
+      }
+    },
+
+    "database": {
+      "tables": {
+        "File": {
+          "purpose": "سجل كل ملف",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "name", "type": "string (original name)" },
+            { "name": "key", "type": "string (storage key/path)" },
+            { "name": "url", "type": "string (public or signed)" },
+            { "name": "mimeType", "type": "string" },
+            { "name": "size", "type": "int (bytes)" },
+            { "name": "extension", "type": "string" },
+            { "name": "category", "type": "enum(document|image|video|archive|other)" },
+            { "name": "checksum", "type": "string (SHA-256)" },
+            { "name": "width", "type": "int? (images)" },
+            { "name": "height", "type": "int? (images)" },
+            { "name": "duration", "type": "int? (videos)" },
+            { "name": "thumbnails", "type": "json? (different sizes)" },
+            { "name": "metadata", "type": "json? (extra info)" },
+            { "name": "ownerId", "type": "uuid FK → User" },
+            { "name": "entityType", "type": "string? (Case|User|Invoice|...)" },
+            { "name": "entityId", "type": "uuid?" },
+            { "name": "visibility", "type": "enum(private|team|public)" },
+            { "name": "isDeleted", "type": "boolean (soft delete)" },
+            { "name": "deletedAt", "type": "datetime?" },
+            { "name": "deletedById", "type": "uuid?" },
+            { "name": "createdAt", "type": "datetime" },
+            { "name": "updatedAt", "type": "datetime" }
+          ],
+          "indexes": ["ownerId", "entityType + entityId", "category", "createdAt", "isDeleted"]
+        },
+
+        "FileVersion": {
+          "purpose": "إصدارات الملف (للـ versioning)",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "fileId", "type": "uuid FK → File" },
+            { "name": "version", "type": "int" },
+            { "name": "key", "type": "string (storage path for version)" },
+            { "name": "size", "type": "int" },
+            { "name": "checksum", "type": "string" },
+            { "name": "uploadedById", "type": "uuid FK → User" },
+            { "name": "createdAt", "type": "datetime" }
+          ]
+        },
+
+        "FileShare": {
+          "purpose": "روابط مشاركة آمنة",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "fileId", "type": "uuid FK → File" },
+            { "name": "token", "type": "string (unique, random)" },
+            { "name": "expiresAt", "type": "datetime" },
+            { "name": "maxDownloads", "type": "int?" },
+            { "name": "downloadCount", "type": "int (default 0)" },
+            { "name": "password", "type": "string? (hashed)" },
+            { "name": "createdById", "type": "uuid FK → User" },
+            { "name": "createdAt", "type": "datetime" }
+          ]
+        },
+
+        "UserQuota": {
+          "purpose": "حصة كل مستخدم",
+          "fields": [
+            { "name": "id", "type": "uuid PK" },
+            { "name": "userId", "type": "uuid FK → User (unique)" },
+            { "name": "totalQuotaBytes", "type": "bigint (default 500MB)" },
+            { "name": "usedBytes", "type": "bigint (calculated)" },
+            { "name": "fileCount", "type": "int" },
+            { "name": "lastCalculatedAt", "type": "datetime" }
+          ]
+        }
+      }
+    },
+
+    "upload_implementation": {
+      "endpoints": {
+        "single_upload": {
+          "method": "POST",
+          "path": "/api/files/upload",
+          "auth": "authenticated",
+          "content_type": "multipart/form-data",
+          "fields": {
+            "file": "File (required)",
+            "entityType": "Case|User|Invoice|... (optional)",
+            "entityId": "uuid (optional)",
+            "visibility": "private|team|public (default: private)"
+          },
+          "middleware": [
+            "authenticate",
+            "multer (file size + MIME check)",
+            "quota check",
+            "virus scan (async)"
+          ],
+          "validation": {
+            "file": {
+              "required": true,
+              "max_size": "depends on type",
+              "allowed_extensions": "from file_types_support",
+              "checksum": "for duplicate detection"
+            },
+            "entityType": {
+              "optional": true,
+              "enum": ["Case", "User", "Invoice", "Client", "Chat"]
+            },
+            "entityId": {
+              "required_if": "entityType is set",
+              "validation": "must exist + user has access"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "success": true,
+              "data": {
+                "id": "uuid",
+                "name": "original.pdf",
+                "url": "/uploads/2025/01/uuid.pdf",
+                "size": 5242880,
+                "mimeType": "application/pdf",
+                "category": "document",
+                "checksum": "sha256...",
+                "thumbnails": null,
+                "createdAt": "ISO"
+              }
+            }
+          }
+        },
+
+        "batch_upload": {
+          "method": "POST",
+          "path": "/api/files/batch-upload",
+          "content_type": "multipart/form-data",
+          "fields": { "files": "File[] (max 10)" },
+          "response": {
+            "success": true,
+            "data": {
+              "uploaded": "array",
+              "failed": "array [{name, error}]"
+            }
+          }
+        },
+
+        "presigned_upload": {
+          "method": "POST",
+          "path": "/api/files/presigned-url",
+          "description": "للملفات الكبيرة (> 10MB) — الرفع مباشرة إلى S3",
+          "body": {
+            "filename": "string",
+            "size": "number",
+            "mimeType": "string",
+            "entityType": "string?",
+            "entityId": "uuid?"
+          },
+          "response": {
+            "success": true,
+            "data": {
+              "uploadUrl": "https://s3.amazonaws.com/...",
+              "fileKey": "uuid/uuid.pdf",
+              "expiresIn": 300,
+              "fileId": "uuid (pending)"
+            }
+          },
+          "flow": [
+            "1. Client requests presigned URL",
+            "2. Server validates + creates pending File record",
+            "3. Server generates S3 presigned URL",
+            "4. Client uploads directly to S3",
+            "5. Client calls POST /api/files/:id/confirm",
+            "6. Server verifies upload + updates DB"
+          ]
+        },
+
+        "confirm_upload": {
+          "method": "POST",
+          "path": "/api/files/:id/confirm",
+          "description": "للملفات presigned",
+          "logic": [
+            "1. Verify file exists in storage",
+            "2. Verify size matches",
+            "3. Compute checksum",
+            "4. Update File record (status: confirmed)",
+            "5. Generate thumbnails if image",
+            "6. Async virus scan"
+          ]
+        }
+      },
+
+      "multer_config": {
+        "storage": "diskStorage (local) or memoryStorage (S3 presigned)",
+        "limits": { "fileSize": "20MB (or by type)", "files": 10 },
+        "fileFilter": "checks extension + MIME",
+        "destination": "uploads/{year}/{month}/{uuid}",
+        "filename": "{uuid}.{ext}"
+      },
+
+      "processing_pipeline": {
+        "step_1_validation": [
+          "Multer accepted the file",
+          "Extension in allowed list",
+          "MIME from magic bytes",
+          "Size within limits"
+        ],
+        "step_2_security": [
+          "Virus scan (ClamAV)",
+          "Strip metadata (images: EXIF)",
+          "Check for executable code in PDFs/Office",
+          "Check SVG for scripts (sanitize)"
+        ],
+        "step_3_processing": {
+          "images": [
+            "Convert to WebP (if not already)",
+            "Generate thumbnails: 64, 256, 1024",
+            "Resize if > 4096px",
+            "Compress (quality 85%)",
+            "Store original + processed"
+          ],
+          "videos": [
+            "Extract first frame (thumbnail)",
+            "Optional: transcode to 720p (async)",
+            "Extract duration"
+          ],
+          "documents": [
+            "No processing",
+            "Optional: generate preview for PDF (first page image)"
+          ]
+        },
+        "step_4_storage": [
+          "Save to disk or S3",
+          "Generate public URL",
+          "Compute checksum (SHA-256)"
+        ],
+        "step_5_database": [
+          "Insert File record",
+          "Insert FileVersion (v1)",
+          "Update UserQuota"
+        ],
+        "step_6_audit": "Log to AuditLog"
+      },
+
+      "progress_tracking": {
+        "websocket": "socket.emit('upload:progress', { uploadId, percent })",
+        "client": "show progress bar",
+        "cancelable": true,
+        "cancel_endpoint": "POST /api/files/upload/:uploadId/cancel"
+      }
+    },
+
+    "download_implementation": {
+      "endpoints": {
+        "download": {
+          "method": "GET",
+          "path": "/api/files/:id/download",
+          "auth": "authenticated + ownership/access check",
+          "logic": [
+            "1. Find File by id",
+            "2. Verify user has access (owner/team/public)",
+            "3. If not found → 404 (not 403, prevent enumeration)",
+            "4. Stream file from storage to client",
+            "5. Set headers: Content-Disposition, Content-Type, Content-Length",
+            "6. Audit log: 'file.downloaded'"
+          ],
+          "headers": {
+            "Content-Disposition": "attachment; filename=\"original.pdf\"",
+            "Content-Type": "application/pdf",
+            "Content-Length": "5242880",
+            "Cache-Control": "private, max-age=0",
+            "X-Content-Type-Options": "nosniff"
+          }
+        },
+
+        "preview": {
+          "method": "GET",
+          "path": "/api/files/:id/preview",
+          "description": "For images and PDFs — inline display",
+          "headers": {
+            "Content-Disposition": "inline; filename=\"...\"",
+            "Content-Type": "image/jpeg | application/pdf"
+          }
+        },
+
+        "thumbnail": {
+          "method": "GET",
+          "path": "/api/files/:id/thumbnail/:size",
+          "sizes": ["64", "256", "1024"],
+          "returns": "image (WebP or JPEG)",
+          "cache": "public, max-age=2592000, immutable"
+        },
+
+        "stream": {
+          "method": "GET",
+          "path": "/api/files/:id/stream",
+          "description": "For video streaming with range support",
+          "headers": {
+            "Accept-Ranges": "bytes",
+            "Content-Range": "bytes 0-1023/5242880 (on range requests)"
+          },
+          "range_support": true
+        },
+
+        "signed_url": {
+          "method": "POST",
+          "path": "/api/files/:id/signed-url",
+          "description": "Generate temporary URL for sharing",
+          "body": { "expiresIn": 3600, "requirePassword": false },
+          "response": {
+            "url": "https://s3.amazonaws.com/...?X-Amz-Expires=3600",
+            "expiresAt": "ISO"
+          }
+        },
+
+        "share_link": {
+          "method": "POST",
+          "path": "/api/files/:id/share",
+          "body": {
+            "expiresIn": 86400,
+            "maxDownloads": 10,
+            "password": "optional"
+          },
+          "response": {
+            "shareUrl": "https://lawfirm.com/s/{token}",
+            "token": "random-token",
+            "expiresAt": "ISO"
+          }
+        },
+
+        "download_shared": {
+          "method": "GET",
+          "path": "/api/files/shared/:token",
+          "auth": "public (or password)",
+          "logic": [
+            "1. Find FileShare by token",
+            "2. Check expiry",
+            "3. Check max downloads",
+            "4. If password required → prompt",
+            "5. Stream file",
+            "6. Increment downloadCount",
+            "7. Audit log"
+          ]
+        }
+      },
+
+      "streaming": {
+        "range_requests": "supported for video/audio",
+        "chunked_encoding": "for large files",
+        "browser_native": "images/videos stream automatically",
+        "resume": "via HTTP Range headers"
+      },
+
+      "cdn_integration": {
+        "when": "public files + static assets",
+        "providers": ["Cloudflare", "CloudFront", "Bunny CDN"],
+        "cache_control": "public, max-age=2592000, immutable",
+        "purge": "on file update/delete"
+      }
+    },
+
+    "access_control": {
+      "rules": {
+        "admin": "can access all files",
+        "owner": "can access own files",
+        "team": "can access files marked 'team' in same entity",
+        "public": "anyone can access (if public)",
+        "shared": "anyone with token (if valid)"
+      },
+      "entity_linking": {
+        "case_documents": "owner + lawyer + client of case",
+        "user_avatar": "everyone (public)",
+        "invoice_pdf": "owner + accountant",
+        "chat_files": "members of chat room"
+      },
+      "isolation_check": {
+        "method": "function canAccessFile(userId, userRole, fileId)",
+        "logic": [
+          "1. Load file",
+          "2. If !file → 404",
+          "3. If role === 'admin' → allow",
+          "4. If file.ownerId === userId → allow",
+          "5. If file.visibility === 'public' → allow",
+          "6. If file.entityType === 'Case':",
+          "   - Load case",
+          "   - If user is lawyer on case → allow",
+          "   - If user is client on case → allow",
+          "   - If user is secretary → allow (read only)",
+          "7. If file.entityType === 'ChatRoom':",
+          "   - Check ChatMember",
+          "8. Else → 404 (not 403)"
+        ]
+      }
+    },
+
+    "quota_management": {
+      "default_quotas": {
+        "client": "500 MB",
+        "lawyer": "2 GB",
+        "legal_assistant": "1 GB",
+        "accountant": "500 MB",
+        "secretary": "500 MB",
+        "admin": "10 GB"
+      },
+      "calculation": {
+        "method": "SUM(size) FROM files WHERE ownerId = $1 AND isDeleted = false",
+        "frequency": "on every upload + daily cron",
+        "cache": "Redis, invalidated on upload/delete"
+      },
+      "enforcement": {
+        "before_upload": "check if (used + newFileSize) <= quota",
+        "if_exceeded": "return 429 with message: 'تجاوزت الحصة المسموحة (X/Y MB)'",
+        "suggestion": "delete old files or upgrade"
+      },
+      "quota_endpoint": {
+        "method": "GET",
+        "path": "/api/files/quota",
+        "returns": {
+          "total": "bytes",
+          "used": "bytes",
+          "available": "bytes",
+          "percent": "number",
+          "fileCount": "number"
+        }
+      }
+    },
+
+    "security_measures": {
+      "upload_security": [
+        "✅ MIME check via magic bytes (not just extension)",
+        "✅ Extension blocklist (executables)",
+        "✅ Size limits per type",
+        "✅ Virus scan (ClamAV or VirusTotal API)",
+        "✅ Strip EXIF from images",
+        "✅ Sanitize SVG (remove scripts)",
+        "✅ PDF script detection",
+        "✅ Office macro warning"
+      ],
+      "download_security": [
+        "✅ Authentication required",
+        "✅ Ownership verification",
+        "✅ Path traversal prevention (no ../)",
+        "✅ Content-Type header correct",
+        "✅ Content-Disposition attachment (prevent inline execution)",
+        "✅ X-Content-Type-Options: nosniff",
+        "✅ Rate limiting (100 downloads/hour per user)"
+      ],
+      "storage_security": [
+        "✅ Files not directly accessible (no /uploads public in prod)",
+        "✅ S3 bucket private (only signed URLs)",
+        "✅ Encrypted at rest (S3 SSE-S3 or KMS)",
+        "✅ Encrypted in transit (HTTPS)",
+        "✅ Access logs enabled"
+      ],
+      "sharing_security": [
+        "✅ Short-lived tokens",
+        "✅ Optional password",
+        "✅ Download limits",
+        "✅ Expiry dates",
+        "✅ Audit of every access"
+      ]
+    },
+
+    "file_cleanup": {
+      "orphan_files": {
+        "description": "ملفات في storage بدون DB record",
+        "detection": "cron job weekly: list storage → compare with DB",
+        "action": "delete orphans older than 24h"
+      },
+      "soft_deleted_files": {
+        "description": "ملفات محذوفة ناعماً",
+        "retention": "30 days (configurable)",
+        "action": "hard delete after retention",
+        "trigger": "daily cron"
+      },
+      "expired_share_links": {
+        "action": "mark as expired or delete",
+        "trigger": "hourly cron"
+      },
+      "temp_uploads": {
+        "description": "presigned uploads not confirmed",
+        "retention": "24 hours",
+        "action": "delete unconfirmed uploads > 24h"
+      },
+      "audit_retention": {
+        "file_access_logs": "365 days",
+        "file_uploads": "as long as file exists"
+      }
+    },
+
+    "frontend_ui": {
+      "FileUploader": {
+        "features": [
+          "Drag-and-drop zone",
+          "Click to browse",
+          "Multiple files",
+          "Progress bar per file",
+          "Cancel individual",
+          "Retry failed",
+          "Preview (images)",
+          "File type icons",
+          "Size display",
+          "Validation errors inline"
+        ],
+        "states": ["idle", "dragging", "uploading", "success", "error", "quota_exceeded"]
+      },
+      "FilePreview": {
+        "images": "Full-screen modal with zoom + next/prev",
+        "pdf": "Embedded PDF viewer (pdf.js)",
+        "videos": "Native video player with controls",
+        "documents": "Download button (no preview)",
+        "audio": "Native audio player",
+        "features": [
+          "Keyboard navigation (arrows)",
+          "Download button",
+          "Share button",
+          "Delete button (if owner)",
+          "File info sidebar"
+        ]
+      },
+      "FileList": {
+        "views": ["grid", "list"],
+        "grid": "thumbnails for images, icons for others",
+        "list": "table with columns: name, size, date, owner, actions",
+        "filters": ["type", "date range", "entity"],
+        "search": "by filename",
+        "sort": ["name", "size", "date"],
+        "batch_actions": ["delete", "download", "move"],
+        "pagination": "20 per page"
+      },
+      "FileManagerPage": {
+        "route": "/files",
+        "tabs": ["All Files", "Recent", "Shared", "Trash"],
+        "quota_bar": "shows used/total with warning if > 80%",
+        "entity_filter": "dropdown to filter by case/invoice/etc"
+      }
+    },
+
+    "api_endpoints": {
+      "base": "/api/files",
+      "endpoints": [
+        { "method": "POST", "path": "/api/files/upload", "auth": "user", "description": "Single upload" },
+        { "method": "POST", "path": "/api/files/batch-upload", "auth": "user", "description": "Batch upload" },
+        { "method": "POST", "path": "/api/files/presigned-url", "auth": "user", "description": "Get S3 presigned URL" },
+        { "method": "POST", "path": "/api/files/:id/confirm", "auth": "user", "description": "Confirm presigned upload" },
+        { "method": "GET", "path": "/api/files", "auth": "user", "description": "List user's files (paginated)" },
+        { "method": "GET", "path": "/api/files/:id", "auth": "user", "description": "Get file metadata" },
+        { "method": "GET", "path": "/api/files/:id/download", "auth": "user", "description": "Download file" },
+        { "method": "GET", "path": "/api/files/:id/preview", "auth": "user", "description": "Preview inline" },
+        { "method": "GET", "path": "/api/files/:id/thumbnail/:size", "auth": "public", "description": "Get thumbnail" },
+        { "method": "GET", "path": "/api/files/:id/stream", "auth": "user", "description": "Stream video (range)" },
+        { "method": "POST", "path": "/api/files/:id/signed-url", "auth": "user", "description": "Generate signed URL" },
+        { "method": "POST", "path": "/api/files/:id/share", "auth": "user", "description": "Create share link" },
+        { "method": "GET", "path": "/api/files/shared/:token", "auth": "public", "description": "Download via share link" },
+        { "method": "GET", "path": "/api/files/quota", "auth": "user", "description": "Get quota info" },
+        { "method": "PATCH", "path": "/api/files/:id", "auth": "owner", "description": "Update file metadata" },
+        { "method": "DELETE", "path": "/api/files/:id", "auth": "owner", "description": "Soft delete file" },
+        { "method": "POST", "path": "/api/files/:id/restore", "auth": "owner", "description": "Restore deleted" },
+        { "method": "DELETE", "path": "/api/files/:id/permanent", "auth": "owner", "description": "Hard delete" },
+        { "method": "POST", "path": "/api/files/cleanup", "auth": "admin", "description": "Manual cleanup (dry-run)" }
+      ]
+    },
+
+    "audit_events": {
+      "logged_events": [
+        "file.uploaded",
+        "file.downloaded",
+        "file.previewed",
+        "file.shared",
+        "file.share_accessed",
+        "file.deleted",
+        "file.restored",
+        "file.hard_deleted",
+        "file.quota_exceeded",
+        "file.virus_detected"
+      ],
+      "logged_fields": [
+        "userId",
+        "fileId",
+        "fileName",
+        "fileSize",
+        "ip",
+        "userAgent",
+        "action",
+        "timestamp",
+        "success"
+      ]
+    },
+
+    "performance": {
+      "targets": {
+        "upload_small_file": "< 2s (5MB)",
+        "upload_large_file": "< 30s (100MB via presigned)",
+        "download": "< 1s (streaming)",
+        "thumbnail_generation": "< 500ms",
+        "quota_check": "< 50ms (cached)"
+      },
+      "optimizations": [
+        "Presigned URLs for files > 10MB (direct to S3)",
+        "Thumbnails generated async",
+        "CDN for public files",
+        "Range requests for video",
+        "Compression (images → WebP)",
+        "Redis cache for quota"
+      ]
+    },
+
+    "monitoring": {
+      "metrics": [
+        "Uploads per hour",
+        "Downloads per hour",
+        "Average file size",
+        "Storage used (total)",
+        "Virus scans per day",
+        "Quota exceed rate",
+        "Failed uploads"
+      ],
+      "alerts": [
+        { "condition": "storage > 85%", "action": "notify admin" },
+        { "condition": "failed uploads > 10%", "action": "investigate" },
+        { "condition": "virus detected", "action": "immediate alert" },
+        { "condition": "quota exceeded > 10 users", "action": "notify" }
+      ]
+    },
+
+    "cost_estimation": {
+      "for_1000_users": {
+        "average_file_size": "2MB",
+        "average_files_per_user": 50,
+        "total_storage": "100GB",
+        "s3_cost_month": "$2.30",
+        "transfer_out_cost": "$9.00 (100GB)",
+        "cdn_cost": "$5.00 (if used)",
+        "total_month": "~$16.30"
+      },
+      "for_10000_users": {
+        "total_storage": "1TB",
+        "s3_cost_month": "$23.00",
+        "transfer_out_cost": "$90.00",
+        "cdn_cost": "$50.00",
+        "total_month": "~$163"
+      }
+    },
+
+    "verification_checklist": {
+      "upload": [
+        "✅ رفع single file يعمل",
+        "✅ رفع batch يعمل",
+        "✅ Drag-drop يعمل",
+        "✅ Progress bar يعرض",
+        "✅ Cancel يعمل",
+        "✅ Validation (type, size) يعمل",
+        "✅ Blocked extensions rejected",
+        "✅ Virus scan يعمل",
+        "✅ Quota enforced",
+        "✅ Images processed (thumbnails)",
+        "✅ Metadata saved in DB"
+      ],
+      "download": [
+        "✅ Download single يعمل",
+        "✅ Preview images يعمل",
+        "✅ Preview PDF يعمل",
+        "✅ Video streaming يعمل",
+        "✅ Range requests تعمل",
+        "✅ Share link يعمل",
+        "✅ Signed URL يعمل",
+        "✅ Password-protected share يعمل",
+        "✅ Expiry يعمل",
+        "✅ Download limit يعمل"
+      ],
+      "security": [
+        "🚨 لا file access بدون auth",
+        "🚨 لا path traversal",
+        "🚨 لا XSS في SVG",
+        "🚨 لا executable files",
+        "🚨 No enumeration (404 not 403)",
+        "🚨 Share tokens عشوائية",
+        "🚨 Audit log لكل access"
+      ],
+      "isolation": [
+        "🚨 Client A لا يرى ملفات Client B",
+        "🚨 Lawyer لا يرى ملفات قضايا ليست له",
+        "🚨 Chat files لمجموعة محادثة فقط"
+      ]
+    },
+
+    "statistics": {
+      "total_endpoints": 19,
+      "total_db_tables": 4,
+      "total_supported_types": 20,
+      "max_file_size": "100MB",
+      "default_quota": "500MB-10GB",
+      "estimated_days": 7
+    }
+  }
+}

@@ -1,0 +1,1097 @@
+{
+  "public_pages_settings_plan": {
+    "metadata": {
+      "title": "إعدادات الصفحات العامة + Footer + SEO",
+      "version": "1.0.0",
+      "scope": "Admin controlled public pages + Footer + SEO",
+      "access_level": "admin only",
+      "affected_areas": ["Home", "About", "Services", "Contact", "Footer", "SEO", "Public Header"],
+      "target": ["AI Studio", "فريق التطوير"]
+    },
+
+    "overview": {
+      "purpose": "تمكين المدير من التحكم الكامل في كل ما يراه الزائر بدون كود",
+      "features": [
+        "🎨 تحرير محتوى كل قسم في الصفحات العامة",
+        "📄 إدارة الـ Footer (روابط، معلومات، social)",
+        "🔍 إعدادات SEO لكل صفحة",
+        "🌐 دعم AR/EN لكل حقل",
+        "📱 معاينة فورية",
+        "🖼️ رفع صور وإدارة الوسائط",
+        "💾 حفظ كمسودة أو نشر فوري",
+        "🔄 سجل التغييرات (versions)",
+        "⚡ Cache invalidation تلقائي",
+        "🎯 ربط SEO بـ sitemap + structured data"
+      ],
+      "design_principles": [
+        "🎯 كل ما يراه الزائر = قابل للتحرير",
+        "🎯 Live Preview قبل النشر",
+        "🎯 AR/EN في كل حقل",
+        "🎯 لا كود — تحرير مرئي فقط",
+        "🎯 SEO يؤثر على كل الصفحات",
+        "🎯 Rollback لأي إصدار"
+      ]
+    },
+
+    "data_model": {
+      "PublicPageSettings": {
+        "purpose": "إعدادات كل صفحة عامة",
+        "fields": [
+          { "name": "id", "type": "uuid PK" },
+          { "name": "pageKey", "type": "enum(home|about|services|contact)", "unique": true },
+          { "name": "title_ar", "type": "string", "max": 150 },
+          { "name": "title_en", "type": "string", "max": 150 },
+          { "name": "subtitle_ar", "type": "string?", "max": 300 },
+          { "name": "subtitle_en", "type": "string?", "max": 300 },
+          { "name": "heroImage", "type": "string? (URL)" },
+          { "name": "heroVideo", "type": "string? (URL)" },
+          { "name": "sections", "type": "json (array of section configs)" },
+          { "name": "status", "type": "enum(draft|published|archived)", "default": "published" },
+          { "name": "lastPublishedAt", "type": "datetime?" },
+          { "name": "publishedById", "type": "uuid? FK → User" },
+          { "name": "updatedById", "type": "uuid FK → User" },
+          { "name": "updatedAt", "type": "datetime" },
+          { "name": "createdAt", "type": "datetime" }
+        ],
+        "indexes": ["pageKey", "status"]
+      },
+
+      "FooterSettings": {
+        "purpose": "إعدادات الـ Footer",
+        "singleton": true,
+        "fields": [
+          { "name": "id", "type": "uuid PK" },
+          { "name": "aboutText_ar", "type": "text", "max": 500 },
+          { "name": "aboutText_en", "type": "text", "max": 500 },
+          { "name": "logo", "type": "string? (URL)" },
+          { "name": "columns", "type": "json (array of {title_ar, title_en, links[]})" },
+          { "name": "socialLinks", "type": "json (array of {platform, url, icon})" },
+          { "name": "legalLinks", "type": "json (array of {label_ar, label_en, url})" },
+          { "name": "copyright_ar", "type": "string", "default": "© {year} {firmName} — جميع الحقوق محفوظة" },
+          { "name": "copyright_en", "type": "string", "default": "© {year} {firmName} — All rights reserved" },
+          { "name": "showNewsletter", "type": "boolean", "default": true },
+          { "name": "newsletterTitle_ar", "type": "string?" },
+          { "name": "newsletterTitle_en", "type": "string?" },
+          { "name": "showBackToTop", "type": "boolean", "default": true },
+          { "name": "showSystemStatus", "type": "boolean", "default": true },
+          { "name": "customHtml_ar", "type": "text?" },
+          { "name": "customHtml_en", "type": "text?" },
+          { "name": "styleConfig", "type": "json (bg color, text color, padding)" },
+          { "name": "updatedById", "type": "uuid FK → User" },
+          { "name": "updatedAt", "type": "datetime" }
+        ]
+      },
+
+      "SEOSettings": {
+        "purpose": "إعدادات SEO على مستوى النظام + لكل صفحة",
+        "fields": [
+          { "name": "id", "type": "uuid PK" },
+          { "name": "scope", "type": "enum(global|page)", "note": "global للـ default، page للـ override" },
+          { "name": "pageKey", "type": "enum(home|about|services|contact)?", "nullable": true, "note": "null للـ global" },
+
+          { "name": "siteName_ar", "type": "string", "max": 100 },
+          { "name": "siteName_en", "type": "string", "max": 100 },
+          { "name": "titleTemplate", "type": "string", "default": "%s | {siteName}", "example": "من نحن | مكتب العدالة" },
+          { "name": "defaultTitle_ar", "type": "string", "max": 60 },
+          { "name": "defaultTitle_en", "type": "string", "max": 60 },
+          { "name": "defaultDescription_ar", "type": "string", "max": 160 },
+          { "name": "defaultDescription_en", "type": "string", "max": 160 },
+          { "name": "keywords_ar", "type": "string (csv)" },
+          { "name": "keywords_en", "type": "string (csv)" },
+          { "name": "defaultOGImage", "type": "string (URL)" },
+          { "name": "twitterHandle", "type": "string?", "example": "@lawfirm" },
+          { "name": "canonicalBaseUrl", "type": "string", "default": "https://lawfirm.com" },
+
+          { "name": "enableIndexing", "type": "boolean", "default": true },
+          { "name": "robotsTxt", "type": "text", "note": "custom robots.txt" },
+          { "name": "sitemapEnabled", "type": "boolean", "default": true },
+          { "name": "sitemapAutoUpdate", "type": "boolean", "default": true },
+
+          { "name": "googleAnalyticsId", "type": "string?", "example": "G-XXXXXXXX" },
+          { "name": "googleSearchConsoleVerification", "type": "string?" },
+          { "name": "googleTagManagerId", "type": "string?" },
+          { "name": "bingVerification", "type": "string?" },
+
+          { "name": "structuredData", "type": "json", "note": "Organization, LocalBusiness schema" },
+          { "name": "hreflang", "type": "json", "default": "{ ar: 'https://lawfirm.com/ar', en: 'https://lawfirm.com/en' }" },
+
+          { "name": "pageTitleOverride_ar", "type": "string?", "max": 60 },
+          { "name": "pageTitleOverride_en", "type": "string?", "max": 60 },
+          { "name": "pageDescriptionOverride_ar", "type": "string?", "max": 160 },
+          { "name": "pageDescriptionOverride_en", "type": "string?", "max": 160 },
+          { "name": "pageOGImage", "type": "string?" },
+          { "name": "noIndex", "type": "boolean", "default": false, "note": "per page" },
+          { "name": "noFollow", "type": "boolean", "default": false },
+
+          { "name": "updatedById", "type": "uuid FK → User" },
+          { "name": "updatedAt", "type": "datetime" }
+        ],
+        "indexes": ["scope", "pageKey"]
+      },
+
+      "PublicPageVersion": {
+        "purpose": "تاريخ إصدارات الصفحات",
+        "fields": [
+          { "name": "id", "type": "uuid PK" },
+          { "name": "pageKey", "type": "string" },
+          { "name": "version", "type": "int" },
+          { "name": "snapshot", "type": "json (full page config)" },
+          { "name": "changeNote", "type": "text?" },
+          { "name": "createdById", "type": "uuid FK → User" },
+          { "name": "createdAt", "type": "datetime" }
+        ]
+      },
+
+      "MediaLibrary": {
+        "purpose": "مكتبة الصور والوسائط",
+        "fields": [
+          { "name": "id", "type": "uuid PK" },
+          { "name": "name", "type": "string" },
+          { "name": "url", "type": "string" },
+          { "name": "type", "type": "string (image/video/document)" },
+          { "name": "size", "type": "int" },
+          { "name": "width", "type": "int?" },
+          { "name": "height", "type": "int?" },
+          { "name": "alt_ar", "type": "string?" },
+          { "name": "alt_en", "type": "string?" },
+          { "name": "folder", "type": "string?", "default": "general" },
+          { "name": "uploadedById", "type": "uuid FK → User" },
+          { "name": "createdAt", "type": "datetime" }
+        ],
+        "indexes": ["folder", "type", "createdAt"]
+      }
+    },
+
+    "admin_pages": {
+      "PublicPagesSettingsPage": {
+        "route": "/settings/public-pages",
+        "layout": "DashboardLayout (admin only)",
+        "tabs": [
+          { "id": "home", "label": "الصفحة الرئيسية", "icon": "home" },
+          { "id": "about", "label": "من نحن", "icon": "info" },
+          { "id": "services", "label": "الخدمات", "icon": "briefcase" },
+          { "id": "contact", "label": "اتصل بنا", "icon": "mail" },
+          { "id": "header", "label": "Header", "icon": "menu" },
+          { "id": "footer", "label": "Footer", "icon": "layout" },
+          { "id": "seo", "label": "SEO", "icon": "search" },
+          { "id": "media", "label": "مكتبة الوسائط", "icon": "image" }
+        ],
+        "header": {
+          "title": "إعدادات الصفحات العامة",
+          "subtitle": "التحكم في المحتوى، Footer، SEO",
+          "actions": [
+            { "text": "معاينة", "icon": "eye", "action": "openPreview" },
+            { "text": "نشر التغييرات", "icon": "upload", "action": "publish", "requires": "admin_password" },
+            { "text": "حفظ كمسودة", "icon": "save", "action": "saveDraft" }
+          ]
+        }
+      }
+    },
+
+    "page_editor_tabs": {
+      "home_tab": {
+        "sections": [
+          {
+            "id": "hero",
+            "title": "Hero Section",
+            "fields": [
+              { "name": "badge_ar", "label": "الشارة (AR)", "type": "text", "max": 50 },
+              { "name": "badge_en", "label": "الشارة (EN)", "type": "text", "max": 50 },
+              { "name": "title_ar", "label": "العنوان (AR)", "type": "text", "max": 100, "required": true },
+              { "name": "title_en", "label": "العنوان (EN)", "type": "text", "max": 100, "required": true },
+              { "name": "subtitle_ar", "label": "العنوان الفرعي (AR)", "type": "textarea", "max": 300 },
+              { "name": "subtitle_en", "label": "العنوان الفرعي (EN)", "type": "textarea", "max": 300 },
+              { "name": "ctaPrimary_text_ar", "label": "زر أساسي - نص", "type": "text" },
+              { "name": "ctaPrimary_text_en", "label": "زر أساسي - نص EN", "type": "text" },
+              { "name": "ctaPrimary_link", "label": "زر أساسي - رابط", "type": "url" },
+              { "name": "ctaSecondary_text_ar", "label": "زر ثانوي - نص", "type": "text" },
+              { "name": "ctaSecondary_text_en", "label": "زر ثانوي - نص EN", "type": "text" },
+              { "name": "ctaSecondary_link", "label": "زر ثانوي - رابط", "type": "url" },
+              { "name": "heroImage", "label": "صورة Hero", "type": "media_picker" },
+              { "name": "heroVideo", "label": "فيديو Hero (اختياري)", "type": "media_picker" },
+              { "name": "backgroundStyle", "label": "نمط الخلفية", "type": "select", "options": ["gradient", "solid", "image", "video"] },
+              { "name": "backgroundColor", "label": "لون الخلفية", "type": "color" }
+            ]
+          },
+          {
+            "id": "stats",
+            "title": "الإحصائيات",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "source", "label": "المصدر", "type": "select", "options": ["auto (from DB)", "manual"] },
+              { "name": "manualStats", "label": "قيم يدوية", "type": "repeater", "fields": ["value", "label_ar", "label_en"] }
+            ]
+          },
+          {
+            "id": "services",
+            "title": "الخدمات المميزة",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "title_ar", "label": "العنوان", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "source", "label": "المصدر", "type": "select", "options": ["auto (featured services)", "manual selection"] },
+              { "name": "serviceIds", "label": "اختيار خدمات", "type": "multi_select", "note": "if manual" },
+              { "name": "layout", "label": "التصميم", "type": "select", "options": ["grid_3", "grid_2", "carousel"] },
+              { "name": "limit", "label": "الحد الأقصى", "type": "number", "default": 6 }
+            ]
+          },
+          {
+            "id": "whyUs",
+            "title": "لماذا نحن",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "title_ar", "label": "العنوان", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "features", "label": "المميزات", "type": "repeater", "fields": ["icon", "title_ar", "title_en", "description_ar", "description_en"] }
+            ]
+          },
+          {
+            "id": "testimonials",
+            "title": "آراء العملاء",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "title_ar", "label": "العنوان", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "source", "label": "المصدر", "type": "select", "options": ["auto (from testimonials)", "manual"] },
+              { "name": "layout", "label": "التصميم", "type": "select", "options": ["carousel", "grid"] }
+            ]
+          },
+          {
+            "id": "cta",
+            "title": "CTA النهائي",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "title_ar", "label": "العنوان", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "button_text_ar", "label": "الزر", "type": "text" },
+              { "name": "button_text_en", "label": "الزر EN", "type": "text" },
+              { "name": "button_link", "label": "الرابط", "type": "url" }
+            ]
+          }
+        ]
+      },
+
+      "about_tab": {
+        "sections": [
+          {
+            "id": "hero",
+            "title": "Hero",
+            "fields": ["badge_ar", "badge_en", "title_ar", "title_en", "subtitle_ar", "subtitle_en", "heroImage"]
+          },
+          {
+            "id": "story",
+            "title": "قصتنا",
+            "fields": [
+              { "name": "title_ar", "label": "العنوان", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "content_ar", "label": "المحتوى", "type": "rich_text", "source": "FirmSettings.aboutContent" },
+              { "name": "content_en", "label": "المحتوى EN", "type": "rich_text" },
+              { "name": "image", "label": "الصورة", "type": "media_picker" },
+              { "name": "highlights", "label": "الهايلايتس", "type": "repeater", "fields": ["icon", "text_ar", "text_en"] }
+            ]
+          },
+          {
+            "id": "values",
+            "title": "قيمنا",
+            "fields": [
+              { "name": "title_ar", "label": "العنوان", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "items", "label": "القيم", "type": "repeater", "fields": ["icon", "title_ar", "title_en", "description_ar", "description_en"] }
+            ]
+          },
+          {
+            "id": "team",
+            "title": "فريقنا",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "title_ar", "label": "العنوان", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "source", "label": "المصدر", "type": "select", "options": ["auto (lawyers + assistants)", "manual"] },
+              { "name": "layout", "label": "التصميم", "type": "select", "options": ["grid_4", "grid_3"] }
+            ]
+          }
+        ]
+      },
+
+      "services_tab": {
+        "sections": [
+          {
+            "id": "hero",
+            "title": "Hero",
+            "fields": ["badge_ar", "badge_en", "title_ar", "title_en", "subtitle_ar", "subtitle_en"]
+          },
+          {
+            "id": "servicesGrid",
+            "title": "شبكة الخدمات",
+            "fields": [
+              { "name": "showFilters", "label": "إظهار الفلاتر", "type": "switch", "default": true },
+              { "name": "layout", "label": "التصميم", "type": "select", "options": ["grid_3", "grid_2", "list"] },
+              { "name": "showIcon", "label": "إظهار الأيقونة", "type": "switch", "default": true },
+              { "name": "showDescription", "label": "إظهار الوصف", "type": "switch", "default": true }
+            ]
+          },
+          {
+            "id": "cta",
+            "title": "CTA",
+            "fields": ["show", "title_ar", "title_en", "button_text_ar", "button_text_en", "button_link"]
+          }
+        ]
+      },
+
+      "contact_tab": {
+        "sections": [
+          {
+            "id": "hero",
+            "title": "Hero",
+            "fields": ["badge_ar", "badge_en", "title_ar", "title_en", "subtitle_ar", "subtitle_en"]
+          },
+          {
+            "id": "contactInfo",
+            "title": "معلومات التواصل",
+            "fields": [
+              { "name": "showAddress", "label": "إظهار العنوان", "type": "switch", "default": true },
+              { "name": "showPhone", "label": "إظهار الهاتف", "type": "switch", "default": true },
+              { "name": "showEmail", "label": "إظهار البريد", "type": "switch", "default": true },
+              { "name": "showWhatsApp", "label": "إظهار WhatsApp", "type": "switch", "default": false },
+              { "name": "source", "label": "المصدر", "type": "select", "options": ["FirmSettings", "manual"] },
+              { "name": "mapEmbedUrl", "label": "Google Maps URL", "type": "url" },
+              { "name": "showMap", "label": "إظهار الخريطة", "type": "switch", "default": true }
+            ]
+          },
+          {
+            "id": "contactForm",
+            "title": "نموذج التواصل",
+            "fields": [
+              { "name": "show", "label": "إظهار النموذج", "type": "switch", "default": true },
+              { "name": "formTitle_ar", "label": "عنوان النموذج", "type": "text" },
+              { "name": "formTitle_en", "label": "عنوان النموذج EN", "type": "text" },
+              { "name": "successMessage_ar", "label": "رسالة النجاح", "type": "text" },
+              { "name": "successMessage_en", "label": "رسالة النجاح EN", "type": "text" },
+              { "name": "enableHoneypot", "label": "تفعيل honeypot", "type": "switch", "default": true },
+              { "name": "enableCaptcha", "label": "تفعيل reCAPTCHA", "type": "switch", "default": false },
+              { "name": "requiredFields", "label": "حقول مطلوبة", "type": "multi_select", "options": ["name", "email", "phone", "subject", "message"] }
+            ]
+          }
+        ]
+      },
+
+      "header_tab": {
+        "sections": [
+          {
+            "id": "logo",
+            "title": "الشعار",
+            "fields": [
+              { "name": "logo", "label": "صورة الشعار", "type": "media_picker" },
+              { "name": "logoText_ar", "label": "نص بديل AR", "type": "text" },
+              { "name": "logoText_en", "label": "نص بديل EN", "type": "text" },
+              { "name": "logoHeight", "label": "ارتفاع الشعار (px)", "type": "number", "default": 40 }
+            ]
+          },
+          {
+            "id": "navigation",
+            "title": "القائمة",
+            "fields": [
+              { "name": "items", "label": "عناصر القائمة", "type": "repeater", "fields": ["label_ar", "label_en", "url", "openInNewTab", "visible"] },
+              { "name": "showLogin", "label": "إظهار زر الدخول", "type": "switch", "default": true },
+              { "name": "showRegister", "label": "إظهار زر التسجيل", "type": "switch", "default": false },
+              { "name": "showLangToggle", "label": "إظهار مبدل اللغة", "type": "switch", "default": true },
+              { "name": "showThemeToggle", "label": "إظهار مبدل المظهر", "type": "switch", "default": true }
+            ]
+          },
+          {
+            "id": "announcement",
+            "title": "شريط الإعلان",
+            "fields": [
+              { "name": "enabled", "label": "مفعّل", "type": "switch", "default": false },
+              { "name": "text_ar", "label": "النص AR", "type": "text" },
+              { "name": "text_en", "label": "النص EN", "type": "text" },
+              { "name": "link", "label": "الرابط", "type": "url" },
+              { "name": "backgroundColor", "label": "لون الخلفية", "type": "color" },
+              { "name": "textColor", "label": "لون النص", "type": "color" },
+              { "name": "dismissible", "label": "قابل للإغلاق", "type": "switch", "default": true },
+              { "name": "startsAt", "label": "يبدأ من", "type": "datetime" },
+              { "name": "endsAt", "label": "ينتهي في", "type": "datetime" }
+            ]
+          }
+        ]
+      },
+
+      "footer_tab": {
+        "sections": [
+          {
+            "id": "about",
+            "title": "قسم About",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "aboutText_ar", "label": "النص AR", "type": "textarea", "max": 500 },
+              { "name": "aboutText_en", "label": "النص EN", "type": "textarea", "max": 500 },
+              { "name": "logo", "label": "الشعار", "type": "media_picker" }
+            ]
+          },
+          {
+            "id": "columns",
+            "title": "الأعمدة",
+            "fields": [
+              { "name": "columns", "label": "الأعمدة", "type": "repeater", "fields": [
+                "title_ar", "title_en", "content_type (links/text)", "links (repeater of {label_ar, label_en, url})", "custom_html_ar", "custom_html_en"
+              ]}
+            ],
+            "max_columns": 4,
+            "note": "يمكن إضافة حتى 4 أعمدة"
+          },
+          {
+            "id": "newsletter",
+            "title": "النشرة البريدية",
+            "fields": [
+              { "name": "show", "label": "إظهار", "type": "switch", "default": true },
+              { "name": "title_ar", "label": "العنوان AR", "type": "text" },
+              { "name": "title_en", "label": "العنوان EN", "type": "text" },
+              { "name": "placeholder_ar", "label": "Placeholder AR", "type": "text" },
+              { "name": "placeholder_en", "label": "Placeholder EN", "type": "text" },
+              { "name": "button_text_ar", "label": "نص الزر AR", "type": "text" },
+              { "name": "button_text_en", "label": "نص الزر EN", "type": "text" }
+            ]
+          },
+          {
+            "id": "social",
+            "title": "روابط التواصل",
+            "fields": [
+              { "name": "socialLinks", "label": "الروابط", "type": "repeater", "fields": [
+                "platform (facebook|twitter|linkedin|instagram|youtube|tiktok|whatsapp)", "url", "icon (auto)", "visible"
+              ]}
+            ]
+          },
+          {
+            "id": "legal",
+            "title": "الروابط القانونية",
+            "fields": [
+              { "name": "legalLinks", "label": "الروابط", "type": "repeater", "fields": ["label_ar", "label_en", "url", "open_in_new_tab"] },
+              { "name": "copyright_ar", "label": "حقوق النشر AR", "type": "text", "note": "يدعم {year}, {firmName}" },
+              { "name": "copyright_en", "label": "حقوق النشر EN", "type": "text" }
+            ]
+          },
+          {
+            "id": "extras",
+            "title": "إضافات",
+            "fields": [
+              { "name": "showBackToTop", "label": "زر العودة للأعلى", "type": "switch", "default": true },
+              { "name": "showSystemStatus", "label": "حالة النظام", "type": "switch", "default": true },
+              { "name": "customHtml_ar", "label": "HTML مخصص AR", "type": "code", "note": "⚠️ يظهر كما هو — استخدم بحذر" },
+              { "name": "customHtml_en", "label": "HTML مخصص EN", "type": "code" }
+            ]
+          },
+          {
+            "id": "style",
+            "title": "التصميم",
+            "fields": [
+              { "name": "backgroundColor", "label": "لون الخلفية", "type": "color", "default": "#1e293b" },
+              { "name": "textColor", "label": "لون النص", "type": "color", "default": "#f1f5f9" },
+              { "name": "linkColor", "label": "لون الروابط", "type": "color", "default": "#60a5fa" },
+              { "name": "paddingY", "label": "الحشو العمودي (px)", "type": "number", "default": 48 },
+              { "name": "columnsGap", "label": "المسافة بين الأعمدة (px)", "type": "number", "default": 32 }
+            ]
+          }
+        ]
+      },
+
+      "seo_tab": {
+        "sections": [
+          {
+            "id": "global",
+            "title": "Global SEO (لكل الصفحات)",
+            "fields": [
+              { "name": "siteName_ar", "label": "اسم الموقع AR", "type": "text", "default": "{firmName}" },
+              { "name": "siteName_en", "label": "اسم الموقع EN", "type": "text" },
+              { "name": "titleTemplate", "label": "قالب العنوان", "type": "text", "default": "%s | {siteName}", "hint": "%s = صفحة name, {siteName} = اسم الموقع" },
+              { "name": "defaultTitle_ar", "label": "العنوان الافتراضي AR", "type": "text", "max": 60 },
+              { "name": "defaultTitle_en", "label": "العنوان الافتراضي EN", "type": "text", "max": 60 },
+              { "name": "defaultDescription_ar", "label": "الوصف الافتراضي AR", "type": "textarea", "max": 160 },
+              { "name": "defaultDescription_en", "label": "الوصف الافتراضي EN", "type": "textarea", "max": 160 },
+              { "name": "keywords_ar", "label": "الكلمات المفتاحية AR", "type": "text", "hint": "CSV: محامي, استشارات, قضايا" },
+              { "name": "keywords_en", "label": "Keywords EN", "type": "text" },
+              { "name": "defaultOGImage", "label": "OG Image الافتراضي", "type": "media_picker", "hint": "1200x630px" },
+              { "name": "twitterHandle", "label": "Twitter Handle", "type": "text", "placeholder": "@lawfirm" },
+              { "name": "canonicalBaseUrl", "label": "Canonical Base URL", "type": "url", "default": "https://lawfirm.com" }
+            ]
+          },
+          {
+            "id": "crawling",
+            "title": "Crawling",
+            "fields": [
+              { "name": "enableIndexing", "label": "السماح بالفهرسة", "type": "switch", "default": true, "warning": "⚠️ إيقاف الفهرسة سيزيل الموقع من Google" },
+              { "name": "sitemapEnabled", "label": "Sitemap تلقائي", "type": "switch", "default": true },
+              { "name": "sitemapAutoUpdate", "label": "تحديث Sitemap تلقائياً", "type": "switch", "default": true },
+              { "name": "robotsTxt", "label": "Robots.txt مخصص", "type": "code", "hint": "اتركه فارغاً لاستخدام الافتراضي" }
+            ]
+          },
+          {
+            "id": "integrations",
+            "title": "Integrations",
+            "fields": [
+              { "name": "googleAnalyticsId", "label": "Google Analytics ID", "type": "text", "placeholder": "G-XXXXXXXX" },
+              { "name": "googleTagManagerId", "label": "GTM ID", "type": "text", "placeholder": "GTM-XXXXXX" },
+              { "name": "googleSearchConsoleVerification", "label": "Search Console Meta", "type": "text" },
+              { "name": "bingVerification", "label": "Bing Verification", "type": "text" },
+              { "name": "facebookPixelId", "label": "Facebook Pixel ID", "type": "text" }
+            ]
+          },
+          {
+            "id": "structured_data",
+            "title": "Structured Data (JSON-LD)",
+            "fields": [
+              { "name": "organizationSchema", "label": "Organization Schema", "type": "json_editor", "prefill": "{ '@context': 'https://schema.org', '@type': 'LegalService', name: '{firmName}', ... }" },
+              { "name": "localBusinessSchema", "label": "LocalBusiness Schema", "type": "json_editor" },
+              { "name": "customSchema", "label": "Custom Schema", "type": "json_editor" }
+            ]
+          },
+          {
+            "id": "per_page",
+            "title": "Per-Page Overrides",
+            "layout": "table",
+            "columns": ["page", "title_ar", "title_en", "description_ar", "description_en", "og_image", "noindex"],
+            "pages": ["home", "about", "services", "contact"],
+            "note": "يمكن تجاوز القيم الافتراضية لكل صفحة"
+          }
+        ]
+      },
+
+      "media_tab": {
+        "sections": [
+          {
+            "id": "upload",
+            "title": "رفع ملفات",
+            "fields": [
+              { "name": "file", "type": "file_upload", "accept": "image/*,video/*", "max_size_mb": 10 },
+              { "name": "folder", "type": "select", "options": ["general", "hero", "services", "team", "blog", "og-images"] }
+            ]
+          },
+          {
+            "id": "library",
+            "title": "المكتبة",
+            "layout": "grid",
+            "features": [
+              "Search by name",
+              "Filter by type/folder",
+              "View dimensions",
+              "Copy URL",
+              "Edit alt text",
+              "Delete (with usage check)"
+            ]
+          }
+        ]
+      }
+    },
+
+    "preview_system": {
+      "live_preview": {
+        "description": "معاينة مباشرة لكل تغيير",
+        "layout": {
+          "desktop": "split-screen (editor + preview)",
+          "tablet": "toggle between",
+          "mobile": "tabs"
+        },
+        "controls": {
+          "device": ["desktop", "tablet", "mobile"],
+          "locale": ["ar", "en"],
+          "theme": ["light", "dark"],
+          "zoom": ["50%", "75%", "100%", "fit"]
+        },
+        "update": {
+          "trigger": "on field change",
+          "debounce": 500,
+          "method": "client-side render (faster)",
+          "for_accurate": "POST /api/settings/public-pages/preview"
+        }
+      },
+      "preview_urls": {
+        "home": "https://lawfirm.com/",
+        "about": "https://lawfirm.com/about",
+        "services": "https://lawfirm.com/services",
+        "contact": "https://lawfirm.com/contact"
+      },
+      "preview_button": "فتح في نافذة جديدة مع session token (admin auth)"
+    },
+
+    "publishing_flow": {
+      "save_draft": {
+        "description": "حفظ بدون نشر",
+        "button": "حفظ كمسودة",
+        "status": "draft",
+        "effect": "لا يظهر للعامة — فقط admin يرى",
+        "preview": "متاح للمدير فقط"
+      },
+      "publish": {
+        "description": "نشر فوري للعامة",
+        "button": "نشر التغييرات",
+        "requires": "admin password + confirmation",
+        "steps": [
+          "1. Validate all fields",
+          "2. Create version snapshot",
+          "3. Update DB (status: published)",
+          "4. Invalidate CDN cache",
+          "5. Invalidate Redis cache",
+          "6. Regenerate sitemap (if enabled)",
+          "7. Update structured data",
+          "8. Audit log",
+          "9. Socket broadcast to connected admins",
+          "10. Email notification to admin"
+        ],
+        "status": "published",
+        "effect": "يظهر فوراً للعامة"
+      },
+      "schedule_publish": {
+        "description": "نشر في وقت محدد",
+        "field": "scheduledAt (datetime)",
+        "background_job": "publishes at scheduled time"
+      },
+      "rollback": {
+        "description": "استعادة إصدار سابق",
+        "method": "من قسم Versions",
+        "steps": ["select version", "preview", "confirm", "publish"]
+      }
+    },
+
+    "cache_invalidation": {
+      "strategy": {
+        "on_publish": [
+          "Redis: DEL public:pages:*",
+          "Redis: DEL public:footer",
+          "Redis: DEL public:seo:*",
+          "CDN: Purge URLs (home, about, services, contact)",
+          "Sitemap: Regenerate",
+          "Structured data: Rebuild"
+        ],
+        "on_media_change": [
+          "CDN: Purge media URLs",
+          "No need to invalidate page cache (URLs same)"
+        ],
+        "ttl_backup": {
+          "page_settings": "1 hour (if no invalidation)",
+          "footer_settings": "1 hour"
+        }
+      },
+      "cdn_integration": {
+        "providers": ["Cloudflare", "CloudFront", "Fastly"],
+        "endpoints": {
+          "cloudflare": "POST /client/v4/zones/{zone}/purge_cache",
+          "cloudfront": "aws cloudfront create-invalidation"
+        }
+      }
+    },
+
+    "seo_impact_on_system": {
+      "description": "كيف يؤثر SEO على كل النظام",
+
+      "global_impact": {
+        "title_template": "لكل صفحة: {pageTitle} | {siteName}",
+        "meta_description": "من SEO settings للصفحة أو الافتراضي",
+        "og_image": "fallback: defaultOGImage → heroImage → firmLogo",
+        "canonical": "{canonicalBaseUrl}/{page}",
+        "hreflang": "auto-injected في كل <head>",
+        "structured_data": "Organization + LocalBusiness في كل صفحة",
+        "robots_meta": "respect noIndex/noFollow per page",
+        "sitemap_xml": "auto-generated from published pages + active services",
+        "robots_txt": "custom from SEO settings (or default)"
+      },
+
+      "per_page_seo_flow": [
+        "1. User visits /about",
+        "2. Frontend loads /api/public/page/about",
+        "3. Response includes: page content + SEO overrides",
+        "4. React Helmet injects:",
+        "   - title: (override or template)",
+        "   - meta description",
+        "   - og:title, og:description, og:image",
+        "   - canonical",
+        "   - hreflang (AR + EN)",
+        "   - JSON-LD structured data",
+        "   - robots meta",
+        "5. Google bot sees complete meta tags",
+        "6. Analytics fires pageview"
+      ],
+
+      "system_wide_effects": {
+        "sitemap": {
+          "endpoint": "/sitemap.xml",
+          "generated_from": ["Published pages (home, about, services, contact)", "Active services pages", "Public blog posts (if any)"],
+          "lastmod": "from lastPublishedAt",
+          "priority": "home=1.0, services=0.9, about=0.8, contact=0.7",
+          "changefreq": "home=daily, others=weekly",
+          "auto_update": "on publish (if sitemapAutoUpdate)"
+        },
+        "robots_txt": {
+          "endpoint": "/robots.txt",
+          "custom_allowed": "admin can override",
+          "default": [
+            "User-agent: *",
+            "Allow: /",
+            "Allow: /about",
+            "Allow: /services",
+            "Allow: /contact",
+            "Disallow: /dashboard/",
+            "Disallow: /api/",
+            "Disallow: /settings/",
+            "Sitemap: https://lawfirm.com/sitemap.xml"
+          ]
+        },
+        "analytics": {
+          "ga4": "injected in <head> via next/script",
+          "gtm": "injected if provided",
+          "facebook_pixel": "injected if provided",
+          "tracking_events": ["page_view", "form_submit", "cta_click", "service_view"]
+        },
+        "structured_data": {
+          "organization": "اسم، شعار، عنوان، هاتف، بريد، سوشيال",
+          "local_business": "العنوان الجغرافي، ساعات العمل، إحداثيات",
+          "service": "لكل خدمة معروضة",
+          "breadcrumb": "في الصفحات الداخلية",
+          "validation": "Google Rich Results Test"
+        }
+      }
+    },
+
+    "api_endpoints": {
+      "public_pages": [
+        {
+          "method": "GET",
+          "path": "/api/settings/public-pages",
+          "auth": "admin",
+          "returns": "all pages + footer + seo"
+        },
+        {
+          "method": "GET",
+          "path": "/api/settings/public-pages/:pageKey",
+          "auth": "admin",
+          "returns": "single page config"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/settings/public-pages/:pageKey",
+          "auth": "admin + password",
+          "body": "{ title_ar, title_en, sections, ... }",
+          "note": "saves as draft"
+        },
+        {
+          "method": "POST",
+          "path": "/api/settings/public-pages/:pageKey/publish",
+          "auth": "admin + password",
+          "body": "{}",
+          "actions": ["validate", "snapshot", "publish", "invalidate caches", "regenerate sitemap"]
+        },
+        {
+          "method": "POST",
+          "path": "/api/settings/public-pages/preview",
+          "auth": "admin",
+          "body": "{ pageKey, config (draft) }",
+          "returns": "rendered HTML"
+        },
+        {
+          "method": "GET",
+          "path": "/api/settings/public-pages/:pageKey/versions",
+          "auth": "admin"
+        },
+        {
+          "method": "POST",
+          "path": "/api/settings/public-pages/:pageKey/versions/:version/restore",
+          "auth": "admin + password"
+        }
+      ],
+      "footer": [
+        {
+          "method": "GET",
+          "path": "/api/settings/footer",
+          "auth": "admin"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/settings/footer",
+          "auth": "admin + password",
+          "note": "saves + publishes immediately"
+        }
+      ],
+      "seo": [
+        {
+          "method": "GET",
+          "path": "/api/settings/seo",
+          "auth": "admin",
+          "returns": "global + per-page"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/settings/seo/global",
+          "auth": "admin + password"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/settings/seo/page/:pageKey",
+          "auth": "admin + password"
+        },
+        {
+          "method": "POST",
+          "path": "/api/settings/seo/validate",
+          "auth": "admin",
+          "body": "{ url }",
+          "returns": "SEO score + issues"
+        },
+        {
+          "method": "POST",
+          "path": "/api/settings/seo/regenerate-sitemap",
+          "auth": "admin"
+        },
+        {
+          "method": "POST",
+          "path": "/api/settings/seo/test-robots",
+          "auth": "admin",
+          "body": "{ url }",
+          "returns": "allowed/blocked"
+        }
+      ],
+      "media": [
+        {
+          "method": "POST",
+          "path": "/api/settings/media/upload",
+          "auth": "admin",
+          "content_type": "multipart/form-data"
+        },
+        {
+          "method": "GET",
+          "path": "/api/settings/media",
+          "auth": "admin",
+          "query": "page, pageSize, search, folder, type"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/settings/media/:id",
+          "auth": "admin",
+          "body": "{ alt_ar, alt_en, folder }"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/settings/media/:id",
+          "auth": "admin",
+          "note": "checks if used in any page first"
+        }
+      ],
+      "public_read": [
+        {
+          "method": "GET",
+          "path": "/api/public/page/:pageKey",
+          "auth": "public",
+          "returns": "published page config + SEO meta + footer + header"
+        },
+        {
+          "method": "GET",
+          "path": "/api/public/footer",
+          "auth": "public"
+        },
+        {
+          "method": "GET",
+          "path": "/sitemap.xml",
+          "auth": "public",
+          "content_type": "application/xml"
+        },
+        {
+          "method": "GET",
+          "path": "/robots.txt",
+          "auth": "public",
+          "content_type": "text/plain"
+        }
+      ]
+    },
+
+    "admin_ui_components": {
+      "pages": [
+        { "name": "PublicPagesSettingsPage", "route": "/settings/public-pages", "tabs": 8 },
+        { "name": "MediaLibraryPage", "route": "/settings/media" },
+        { "name": "SEOAnalyticsPage", "route": "/settings/seo/analytics" }
+      ],
+      "components": [
+        { "name": "PageEditorTab", "purpose": "wrapper for page sections" },
+        { "name": "SectionEditor", "purpose": "collapsible section editor" },
+        { "name": "BilingualField", "purpose": "AR/EN side-by-side input" },
+        { "name": "RepeaterField", "purpose": "dynamic list of items" },
+        { "name": "MediaPicker", "purpose": "modal to select media" },
+        { "name": "ColorPicker", "purpose": "reusable color picker" },
+        { "name": "RichTextEditor", "purpose": "TipTap for about content" },
+        { "name": "LivePreviewPanel", "purpose": "iframe with device switch" },
+        { "name": "VersionHistory", "purpose": "list + restore versions" },
+        { "name": "PublishButton", "purpose": "with password confirmation" },
+        { "name": "SEOScoreWidget", "purpose": "real-time SEO analysis" },
+        { "name": "SitemapPreview", "purpose": "show generated sitemap" },
+        { "name": "RobotsTester", "purpose": "test if URL is allowed" }
+      ]
+    },
+
+    "seo_score_widget": {
+      "description": "تحليل SEO فوري لكل صفحة",
+      "metrics": [
+        {
+          "id": "title_length",
+          "label": "طول العنوان",
+          "ideal": "50-60 chars",
+          "check": "title.length between 50-60",
+          "score": "10 points if ideal, 5 if 40-50 or 60-70, 0 otherwise"
+        },
+        {
+          "id": "description_length",
+          "label": "طول الوصف",
+          "ideal": "150-160 chars",
+          "check": "description.length between 150-160",
+          "score": "10 points"
+        },
+        {
+          "id": "keywords_present",
+          "label": "الكلمات المفتاحية",
+          "check": "keywords not empty",
+          "score": "5 points"
+        },
+        {
+          "id": "og_image",
+          "label": "صورة OG",
+          "check": "ogImage defined",
+          "score": "10 points",
+          "note": "required for social sharing"
+        },
+        {
+          "id": "h1_present",
+          "label": "H1 موجود",
+          "check": "page has exactly one H1",
+          "score": "10 points"
+        },
+        {
+          "id": "alt_texts",
+          "label": "Alt texts للصور",
+          "check": "all images have alt",
+          "score": "10 points"
+        },
+        {
+          "id": "internal_links",
+          "label": "روابط داخلية",
+          "check": "page has ≥ 3 internal links",
+          "score": "5 points"
+        },
+        {
+          "id": "mobile_friendly",
+          "label": "متوافق مع الجوال",
+          "check": "responsive + font sizes",
+          "score": "10 points"
+        },
+        {
+          "id": "fast_load",
+          "label": "سرعة التحميل",
+          "check": "estimated LCP < 2.5s",
+          "score": "10 points"
+        },
+        {
+          "id": "canonical_set",
+          "label": "Canonical",
+          "check": "canonical URL set",
+          "score": "10 points"
+        }
+      ],
+      "total_score": 100,
+      "levels": [
+        { "min": 90, "label": "ممتاز 🟢", "color": "green" },
+        { "min": 70, "label": "جيد 🟡", "color": "amber" },
+        { "min": 50, "label": "يحتاج تحسين 🟠", "color": "orange" },
+        { "min": 0, "label": "ضعيف 🔴", "color": "red" }
+      ],
+      "live_update": "on field change",
+      "recommendations": "contextual tips for improving score"
+    },
+
+    "audit_and_versions": {
+      "audit_log": {
+        "actions": [
+          "public_page.updated",
+          "public_page.published",
+          "public_page.rolled_back",
+          "footer.updated",
+          "seo.updated",
+          "seo.sitemap_regenerated",
+          "media.uploaded",
+          "media.deleted"
+        ],
+        "fields_logged": ["userId", "pageKey", "changes", "ip", "userAgent", "timestamp"]
+      },
+      "versions": {
+        "when_saved": "on every publish (auto-version)",
+        "retention": "last 10 versions per page",
+        "restore": "one-click with preview",
+        "compare": "diff view"
+      }
+    },
+
+    "performance": {
+      "caching": {
+        "public_api": "Redis 1 hour",
+        "footer_api": "Redis 1 hour",
+        "seo_settings": "Redis 1 hour",
+        "page_render": "CDN 1 hour (invalidated on publish)"
+      },
+      "invalidation": {
+        "on_publish": ["Redis clear", "CDN purge", "sitemap regen"],
+        "delay": "< 5 seconds for all users"
+      },
+      "targets": {
+        "page_load": "< 1.5s (FCP)",
+        "lcp": "< 2.5s",
+        "api_response": "< 100ms (cached)"
+      }
+    },
+
+    "verification_checklist": {
+      "public_pages": [
+        "✅ 4 صفحات قابلة للتحرير",
+        "✅ كل قسم قابل للتحكم",
+        "✅ AR/EN لكل حقل",
+        "✅ معاينة فورية",
+        "✅ صور قابلة للرفع",
+        "✅ حفظ كمسودة",
+        "✅ نشر فوري",
+        "✅ إصدارات + rollback"
+      ],
+      "footer": [
+        "✅ عناصر قابلة للتعديل",
+        "✅ Social links",
+        "✅ Legal links",
+        "✅ Copyright",
+        "✅ Newsletter",
+        "✅ تصميم مخصص (colors, padding)",
+        "✅ HTML مخصص (اختياري)"
+      ],
+      "seo": [
+        "✅ Global SEO",
+        "✅ Per-page SEO",
+        "✅ AR/EN descriptions",
+        "✅ Keywords",
+        "✅ OG images",
+        "✅ Analytics (GA4, GTM)",
+        "✅ Sitemap تلقائي",
+        "✅ Robots.txt",
+        "✅ Structured data (JSON-LD)",
+        "✅ SEO score widget",
+        "✅ Cache invalidation on change",
+        "✅ تأثير فوري على كل النظام"
+      ],
+      "security": [
+        "🚨 Admin only",
+        "🚨 Password before publish",
+        "🚨 No XSS in HTML fields",
+        "🚨 Media validation (MIME, size)",
+        "🚨 Audit log for all changes",
+        "🚨 Rate limiting on publish"
+      ]
+    },
+
+    "statistics": {
+      "total_admin_pages": 3,
+      "total_editor_tabs": 8,
+      "total_fields": 120,
+      "total_api_endpoints": 22,
+      "total_db_tables": 5,
+      "seo_metrics": 10,
+      "estimated_days": 10
+    }
+  }
+}

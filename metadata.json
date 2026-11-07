@@ -1,0 +1,6 @@
+{
+  "name": "نظام إدارة مكتب محاماة | Law Firm Management System",
+  "description": "نظام متكامل لإدارة مكتب محاماة — يشمل الصفحات العامة والمصادقة و6 لوحات تحكم متخصصة وقاعدة بيانات شاملة مع إدارة القضايا والعملاء والفواتير والمهام والجلسات",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

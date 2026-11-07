@@ -1,0 +1,776 @@
+{
+  "template_preview_test_plan": {
+    "metadata": {
+      "title": "مخطط معاينة واختبار القوالب",
+      "version": "1.0.0",
+      "scope": "Preview + Test Send + Validation for all channels",
+      "channels": ["email", "sms", "whatsapp", "push"],
+      "access_level": "admin only",
+      "target": ["AI Studio", "فريق التطوير"]
+    },
+
+    "overview": {
+      "purpose": "تمكين مدير المكتب من معاينة القوالب واختبارها قبل التفعيل",
+      "features": [
+        "👁️ Live Preview (فوري أثناء التعديل)",
+        "📱 Multi-device Preview (desktop/tablet/mobile)",
+        "🌐 Multi-locale Preview (AR/EN)",
+        "🌓 Dark Mode Preview",
+        "📧 Inbox Preview (كيف يظهر في Gmail/Outlook)",
+        "🧪 Test Send (إرسال حقيقي)",
+        "📊 Validation (تحقق قبل الإرسال)",
+        "💰 Cost Warning (تحذير التكلفة)",
+        "📋 Delivery Log (سجل الإرسال)",
+        "🔄 Batch Test (اختبار متعدد)"
+      ]
+    },
+
+    "preview_system": {
+      "live_preview": {
+        "description": "معاينة مباشرة تتحدث مع كل تعديل",
+        "layout": {
+          "desktop": "split-screen (editor left 50%, preview right 50%)",
+          "tablet": "split-screen (60/40)",
+          "mobile": "tabs (Editor | Preview)"
+        },
+        "update_trigger": {
+          "on_change": true,
+          "debounce": 300,
+          "method": "POST /api/templates/preview (with current form data, not saved)",
+          "note": "Preview يستخدم بيانات النموذج الحالية وليس المحفوظة"
+        },
+        "loading_state": "skeleton/spinner while rendering"
+      },
+
+      "preview_controls": {
+        "device_switcher": {
+          "options": ["desktop", "tablet", "mobile"],
+          "widths": { "desktop": "100% (max 700px)", "tablet": "768px", "mobile": "375px" },
+          "default": "desktop"
+        },
+        "locale_switcher": {
+          "options": ["ar", "en"],
+          "affects": "direction (RTL/LTR) + font + content",
+          "default": "template locale"
+        },
+        "theme_switcher": {
+          "options": ["light", "dark"],
+          "affects": "preview background only",
+          "default": "light"
+        },
+        "zoom": {
+          "options": ["50%", "75%", "100%", "fit"],
+          "default": "100%"
+        },
+        "variable_fill": {
+          "description": "ملء المتغيرات ببيانات تجريبية",
+          "sources": [
+            { "type": "sample_data", "label": "بيانات تجريبية افتراضية" },
+            { "type": "real_data", "label": "بيانات من قضية/عميل حقيقي" },
+            { "type": "manual", "label": "إدخال يدوي" }
+          ]
+        }
+      },
+
+      "preview_renderers": {
+        "email": {
+          "renderer": "HTML with inline styles",
+          "preview_modes": [
+            { "id": "desktop", "label": "سطح المكتب", "width": "700px" },
+            { "id": "mobile", "label": "جوال", "width": "375px" },
+            { "id": "outlook", "label": "Outlook", "note": "tested for compatibility" },
+            { "id": "gmail", "label": "Gmail", "note": "tested for compatibility" }
+          ],
+          "inbox_preview": {
+            "description": "عرض كيف يبدو البريد في صندوق الوارد",
+            "shows": ["sender_name", "sender_email", "subject", "preheader", "timestamp"],
+            "mockup_style": "inbox row similar to Gmail"
+          },
+          "metadata_check": {
+            "shows": ["subject_length", "preheader_length", "total_size_kb", "images_count", "links_count"],
+            "warnings": [
+              { "condition": "subject_length > 60", "message": "الموضوع طويل — قد يُقطع في بعض العملاء" },
+              { "condition": "preheader_length > 100", "message": "Preheader طويل — سيُقطع" },
+              { "condition": "images_count > 5", "message": "عدد كبير من الصور — قد يبطئ التحميل" },
+              { "condition": "total_size_kb > 100", "message": "حجم القالب كبير — قد يدخل Spam" }
+            ]
+          }
+        },
+
+        "sms": {
+          "renderer": "Plain text with variable substitution",
+          "preview_modes": [
+            { "id": "iphone", "label": "iPhone (iOS Messages)", "style": "iOS-style bubble" },
+            { "id": "android", "label": "Android (Messages)", "style": "Material style" }
+          ],
+          "character_counter": {
+            "shows": ["current_length", "max_length (160 or 70 unicode)", "remaining", "sms_segments"],
+            "colors": {
+              "safe": "green (< 140)",
+              "warning": "amber (140-160)",
+              "danger": "red (> 160, multiple segments)"
+            }
+          },
+          "unicode_warning": {
+            "condition": "contains non-ASCII chars (Arabic, emoji)",
+            "message": "القالب يحتوي على أحرف Unicode — سيُحسب كل 70 حرف كـ SMS منفصل"
+          }
+        },
+
+        "whatsapp": {
+          "renderer": "Meta components format",
+          "preview_modes": [
+            { "id": "iphone", "label": "iPhone (WhatsApp)" },
+            { "id": "android", "label": "Android (WhatsApp)" }
+          ],
+          "style": "WhatsApp-style chat bubble (green for outgoing)",
+          "shows": ["header", "body", "footer", "buttons"],
+          "template_validation": {
+            "checks": [
+              { "check": "template_name approved", "message": "القالب غير معتمد في Meta" },
+              { "check": "parameters_count correct", "message": "عدد المتغيرات لا يطابق القالب" },
+              { "check": "buttons <= 3", "message": "الحد الأقصى 3 أزرار" }
+            ]
+          }
+        },
+
+        "push": {
+          "renderer": "Web Push payload",
+          "preview_modes": [
+            { "id": "chrome_desktop", "label": "Chrome Desktop", "style": "native OS notification" },
+            { "id": "chrome_android", "label": "Chrome Android", "style": "material notification" },
+            { "id": "firefox", "label": "Firefox", "style": "minimal notification" }
+          ],
+          "character_limits": {
+            "title": 65,
+            "body": 120,
+            "warning_when": { "title": 55, "body": 100 }
+          },
+          "shows": ["icon", "title", "body", "actions", "timestamp"]
+        }
+      },
+
+      "variable_filling": {
+        "sample_data": {
+          "description": "بيانات افتراضية ذكية لكل متغير",
+          "defaults": {
+            "firmName": "مكتب العدالة للمحاماة",
+            "firmPhone": "+966110000000",
+            "firmEmail": "info@lawfirm.com",
+            "year": "2025",
+            "currentDate": "15 يناير 2025",
+            "currentTime": "02:30 م",
+            "clientName": "أحمد محمد",
+            "clientEmail": "ahmed@example.com",
+            "clientPhone": "+966500000000",
+            "userName": "أ. سعيد الأحمد",
+            "userEmail": "saeed@lawfirm.com",
+            "caseNumber": "CASE-2025-0001",
+            "caseTitle": "قضية تجارية",
+            "caseCourt": "المحكمة التجارية بالرياض",
+            "appointmentDate": "20 يناير 2025",
+            "appointmentTime": "10:00 ص",
+            "appointmentType": "جلسة محكمة",
+            "lawyerName": "أ. سعيد الأحمد",
+            "invoiceNumber": "INV-2025-00042",
+            "invoiceAmount": "5,000.00 ر.س",
+            "invoiceDueDate": "30 يناير 2025",
+            "invoiceTotal": "5,750.00 ر.س",
+            "taskTitle": "مراجعة مذكرة الدفاع",
+            "taskDueDate": "18 يناير 2025",
+            "taskPriority": "عالية",
+            "loginUrl": "https://lawfirm.com/login",
+            "dashboardUrl": "https://lawfirm.com/dashboard/client",
+            "actionUrl": "https://lawfirm.com/appointments/xyz",
+            "verifyUrl": "https://lawfirm.com/verify-email?token=abc123",
+            "resetUrl": "https://lawfirm.com/reset-password?token=abc123"
+          }
+        },
+        "variable_picker": {
+          "description": "شريط جانبي لإدخال المتغيرات",
+          "layout": "right panel or modal",
+          "features": [
+            "Auto-fill with sample data button",
+            "Copy real values from a case/client",
+            "Manual input for each",
+            "Reset to defaults",
+            "Show which variables are unused"
+          ]
+        },
+        "missing_variables": {
+          "warning": "⚠️ متغيرات غير معبأة",
+          "display": "highlighted in preview + list at top",
+          "example": "متغير {clientName} فارغ — قد يظهر النص ناقصاً"
+        }
+      },
+
+      "responsive_preview": {
+        "device_frames": {
+          "desktop": "browser window (with URL bar)",
+          "tablet": "iPad frame",
+          "mobile": "iPhone/Android frame"
+        },
+        "orientation": ["portrait", "landscape"],
+        "responsive_warnings": [
+          "النص قد يكون صغيراً جداً على الجوال",
+          "الصورة قد تكون كبيرة على الشاشات الصغيرة",
+          "الزر قد يكون صغيراً للنقر باللمس (< 44px)"
+        ]
+      }
+    },
+
+    "validation_system": {
+      "description": "تحقق شامل قبل السماح بالإرسال التجريبي",
+
+      "validation_stages": [
+        {
+          "stage": 1,
+          "name": "Basic Validation",
+          "checks": [
+            { "id": "name_not_empty", "message": "الاسم مطلوب" },
+            { "id": "name_unique_per_channel", "message": "اسم القالب مستخدم بالفعل" },
+            { "id": "channel_selected", "message": "القناة مطلوبة" },
+            { "id": "event_selected", "message": "الحدث مطلوب" },
+            { "id": "locale_selected", "message": "اللغة مطلوبة" }
+          ]
+        },
+        {
+          "stage": 2,
+          "name": "Content Validation",
+          "checks": [
+            { "id": "body_not_empty", "message": "محتوى القالب مطلوب" },
+            { "id": "variables_valid", "message": "متغيرات غير معروفة" },
+            { "id": "variables_allowed_for_event", "message": "متغير لا ينطبق على هذا الحدث" },
+            { "id": "no_unclosed_variables", "message": "متغير غير مغلق {name" },
+            { "id": "no_invalid_html", "message": "HTML غير صالح في القالب" }
+          ]
+        },
+        {
+          "stage": 3,
+          "name": "Channel-specific Validation",
+          "by_channel": {
+            "email": [
+              { "id": "subject_required", "message": "موضوع البريد مطلوب" },
+              { "id": "subject_length", "message": "موضوع البريد > 150 حرف" },
+              { "id": "valid_links", "message": "روابط غير صالحة" },
+              { "id": "no_js_scripts", "message": "JavaScript غير مسموح في البريد" }
+            ],
+            "sms": [
+              { "id": "length_ok", "message": "النص > 160 حرف" },
+              { "id": "unicode_check", "message": "الأحرف العربية تقلل الحد إلى 70 حرف" }
+            ],
+            "whatsapp": [
+              { "id": "template_approved", "message": "القالب غير معتمد في Meta" },
+              { "id": "parameters_count", "message": "عدد المتغيرات لا يطابق القالب المعتمد" },
+              { "id": "buttons_max_3", "message": "الحد الأقصى 3 أزرار" }
+            ],
+            "push": [
+              { "id": "title_required", "message": "العنوان مطلوب" },
+              { "id": "title_length", "message": "العنوان > 65 حرف" },
+              { "id": "body_required", "message": "المحتوى مطلوب" },
+              { "id": "body_length", "message": "المحتوى > 120 حرف" },
+              { "id": "icon_url_valid", "message": "رابط الأيقونة غير صالح" }
+            ]
+          }
+        },
+        {
+          "stage": 4,
+          "name": "Style Validation",
+          "checks": [
+            { "id": "colors_valid_hex", "message": "لون غير صالح (يجب hex)" },
+            { "id": "contrast_ok", "message": "تباين الألوان ضعيف (WCAG AA)" },
+            { "id": "font_size_range", "message": "حجم الخط خارج النطاق المسموح" },
+            { "id": "padding_range", "message": "الحشو خارج النطاق" }
+          ]
+        },
+        {
+          "stage": 5,
+          "name": "External Validation",
+          "checks": [
+            { "id": "template_active_in_meta", "message": "قالب WhatsApp غير معتمد" },
+            { "id": "smtp_configured", "message": "البريد الإلكتروني غير مُعد" },
+            { "id": "sms_configured", "message": "SMS غير مُعد" },
+            { "id": "whatsapp_configured", "message": "WhatsApp غير مُعد" }
+          ]
+        }
+      ],
+
+      "validation_display": {
+        "live": "تظهر الأخطاء تحت الحقول أثناء الكتابة (on blur)",
+        "before_send": "modal يعرض كل الأخطاء قبل الإرسال",
+        "blocking": "لا يمكن الإرسال إذا كانت هناك أخطاء critical",
+        "warnings": "تحذيرات لا تمنع الإرسال لكن تُظهر"
+      }
+    },
+
+    "test_send_system": {
+      "description": "إرسال تجريبي حقيقي للقالب قبل التفعيل",
+
+      "test_modal": {
+        "trigger_from": [
+          { "from": "templates_list", "button": "أيقونة إرسال تجريبي في كل بطاقة" },
+          { "from": "template_editor", "button": "زر 'إرسال تجريبي' في الأعلى" },
+          { "from": "template_preview", "button": "زر 'إرسال تجريبي' أسفل Preview" }
+        ],
+        "layout": {
+          "fields": [
+            {
+              "name": "target",
+              "type": "dynamic",
+              "by_channel": {
+                "email": {
+                  "field": "email",
+                  "label": "البريد الإلكتروني",
+                  "required": true,
+                  "default": "current admin email",
+                  "validation": "valid email format"
+                },
+                "sms": {
+                  "field": "phone",
+                  "label": "رقم الهاتف",
+                  "required": true,
+                  "default": "current admin phone",
+                  "validation": "E.164 format (+966...)"
+                },
+                "whatsapp": {
+                  "field": "phone",
+                  "label": "رقم WhatsApp",
+                  "required": true,
+                  "validation": "must have WhatsApp"
+                },
+                "push": {
+                  "field": "userId",
+                  "label": "المستخدم",
+                  "type": "select",
+                  "options": "admin users only",
+                  "default": "current admin"
+                }
+              }
+            },
+            {
+              "name": "variables",
+              "type": "key_value_pairs",
+              "label": "قيم المتغيرات",
+              "prefilled": "from preview sample data",
+              "editable": true
+            },
+            {
+              "name": "notes",
+              "type": "textarea",
+              "label": "ملاحظات (اختياري)",
+              "note": "stored in Test log for reference"
+            }
+          ],
+          "cost_warning": {
+            "display": "prominent yellow alert",
+            "by_channel": {
+              "email": "🟢 بدون تكلفة (~$0)",
+              "sms": "⚠️ تكلفة ~$0.05 لكل رسالة",
+              "whatsapp": "⚠️ تكلفة ~$0.01 لكل رسالة",
+              "push": "🟢 بدون تكلفة"
+            },
+            "monthly_total_shown": "إجمالي المرسل هذا الشهر: XX"
+          },
+          "actions": [
+            { "text": "إرسال الاختبار", "primary": true, "loading_text": "جارٍ الإرسال..." },
+            { "text": "إلغاء", "secondary": true }
+          ]
+        }
+      },
+
+      "test_execution": {
+        "steps": [
+          "1. Validation (كامل - 5 stages)",
+          "2. Confirm cost (if SMS/WhatsApp)",
+          "3. Rate limit check (max 3/min per template)",
+          "4. Load template + variables",
+          "5. Render with variables",
+          "6. Enqueue in appropriate queue",
+          "7. Log to Test Log (pending)",
+          "8. Send via provider",
+          "9. Update Test Log (sent/failed)",
+          "10. Emit real-time update to admin"
+        ],
+        "success_response": {
+          "message": "✅ تم إرسال الاختبار بنجاح",
+          "details": {
+            "target": "string",
+            "sent_at": "ISO",
+            "cost_estimate": "$0.05",
+            "delivery_id": "uuid",
+            "check_inbox_message": "تحقق من بريدك/هاتفك"
+          }
+        },
+        "failure_response": {
+          "message": "❌ فشل الإرسال",
+          "error": "specific error message",
+          "suggestions": ["hint 1", "hint 2"],
+          "retry_button": true
+        }
+      },
+
+      "test_history": {
+        "description": "سجل كل الاختبارات",
+        "endpoint": "GET /api/templates/:id/tests",
+        "table_columns": [
+          { "key": "createdAt", "label": "التاريخ" },
+          { "key": "target", "label": "المرسل إليه" },
+          { "key": "status", "label": "النتيجة", "badge": true },
+          { "key": "cost", "label": "التكلفة" },
+          { "key": "actions", "label": "إجراءات", "buttons": ["view_error", "resend"] }
+        ],
+        "filters": ["status", "date_range"],
+        "retention": "90 days (configurable)"
+      }
+    },
+
+    "batch_testing": {
+      "description": "اختبار عدة قوالب معاً",
+      "endpoint": "POST /api/templates/batch-test",
+      "use_case": "تحقق من كل قوالب حدث معين بعد تغييرها",
+      "fields": [
+        { "name": "templateIds", "type": "multi-select", "required": true },
+        { "name": "target", "type": "string (email or phone)", "required": true },
+        { "name": "variables", "type": "from preview defaults" }
+      ],
+      "execution": "queue-based, parallel with concurrency limit",
+      "cost_estimate": "sum of all channels",
+      "progress": "real-time updates via socket"
+    },
+
+    "delivery_tracking": {
+      "description": "تتبع حالة كل إرسال (test or production)",
+      "realtime_updates": {
+        "via": "Socket.IO",
+        "events": [
+          { "event": "delivery:sent", "data": "deliveryId, status" },
+          { "event": "delivery:failed", "data": "deliveryId, error" }
+        ]
+      },
+      "webhook_tracking": {
+        "providers": {
+          "sendgrid": "opens + clicks + bounces",
+          "twilio": "delivery status + cost",
+          "meta_whatsapp": "delivered + read receipts",
+          "push": "delivered (best effort)"
+        },
+        "integration": "POST /api/webhooks/{provider}/delivery"
+      }
+    },
+
+    "ui_components": {
+      "preview_components": [
+        {
+          "name": "TemplatePreview",
+          "file": "src/components/templates/TemplatePreview.tsx",
+          "props": ["template", "variables", "locale", "device", "theme"],
+          "renders_by_channel": true
+        },
+        {
+          "name": "PreviewToolbar",
+          "file": "src/components/templates/PreviewToolbar.tsx",
+          "features": ["device_switch", "locale_switch", "theme_switch", "zoom"]
+        },
+        {
+          "name": "EmailPreview",
+          "file": "src/components/templates/EmailPreview.tsx",
+          "features": ["inbox_preview", "full_preview", "html_source"]
+        },
+        {
+          "name": "SmsPreview",
+          "file": "src/components/templates/SmsPreview.tsx",
+          "features": ["iphone_frame", "android_frame", "character_counter"]
+        },
+        {
+          "name": "WhatsAppPreview",
+          "file": "src/components/templates/WhatsAppPreview.tsx",
+          "features": ["chat_bubble", "buttons_preview", "template_validation"]
+        },
+        {
+          "name": "PushPreview",
+          "file": "src/components/templates/PushPreview.tsx",
+          "features": ["os_notification_mockup", "actions_preview"]
+        },
+        {
+          "name": "VariableFiller",
+          "file": "src/components/templates/VariableFiller.tsx",
+          "features": ["sample_data_button", "manual_input", "missing_warnings"]
+        },
+        {
+          "name": "ValidationPanel",
+          "file": "src/components/templates/ValidationPanel.tsx",
+          "features": ["staged_errors", "warnings", "fix_suggestions"]
+        }
+      ],
+      "test_components": [
+        {
+          "name": "TestSendModal",
+          "file": "src/components/templates/TestSendModal.tsx",
+          "props": ["template", "defaultTarget", "defaultVariables"],
+          "on_submit": "POST /api/templates/:id/test"
+        },
+        {
+          "name": "TestHistory",
+          "file": "src/components/templates/TestHistory.tsx",
+          "data_source": "GET /api/templates/:id/tests"
+        },
+        {
+          "name": "BatchTestModal",
+          "file": "src/components/templates/BatchTestModal.tsx"
+        },
+        {
+          "name": "CostWarning",
+          "file": "src/components/templates/CostWarning.tsx"
+        }
+      ]
+    },
+
+    "api_endpoints": {
+      "preview": [
+        {
+          "method": "POST",
+          "path": "/api/templates/preview",
+          "auth": "admin",
+          "body": {
+            "channel": "email|sms|whatsapp|push",
+            "template": "TemplateInput (form data, not saved)",
+            "variables": "Record<string, string>",
+            "locale": "ar|en"
+          },
+          "returns": {
+            "success": true,
+            "data": {
+              "html": "string (email)",
+              "text": "string (sms)",
+              "components": "array (whatsapp)",
+              "payload": "object (push)",
+              "metadata": {
+                "size_kb": "number",
+                "character_count": "number",
+                "warnings": "array"
+              }
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/templates/:id/preview",
+          "auth": "admin",
+          "body": "{ variables, locale }",
+          "returns": "same as above"
+        }
+      ],
+      "validation": [
+        {
+          "method": "POST",
+          "path": "/api/templates/validate",
+          "auth": "admin",
+          "body": "{ channel, template }",
+          "returns": {
+            "valid": "boolean",
+            "errors": [{ "field", "message", "severity" }],
+            "warnings": [{ "field", "message" }]
+          }
+        }
+      ],
+      "test_send": [
+        {
+          "method": "POST",
+          "path": "/api/templates/:id/test",
+          "auth": "admin",
+          "rate_limit": "3/min per template",
+          "body": {
+            "target": "string (email or phone or userId)",
+            "variables": "Record<string, string>",
+            "notes": "string?"
+          },
+          "returns": {
+            "success": true,
+            "data": {
+              "deliveryId": "uuid",
+              "target": "string",
+              "sentAt": "ISO",
+              "costEstimate": "$0.05"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/templates/:id/tests",
+          "auth": "admin",
+          "query": "page, pageSize, status"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/templates/tests/:deliveryId",
+          "auth": "admin",
+          "note": "cleanup test history"
+        }
+      ],
+      "batch_test": [
+        {
+          "method": "POST",
+          "path": "/api/templates/batch-test",
+          "auth": "admin",
+          "body": { "templateIds": "array", "target": "string", "variables": "object" }
+        }
+      ]
+    },
+
+    "cost_tracking": {
+      "test_cost_estimation": {
+        "email": "0 (SMTP free) or $0.0001 (SendGrid)",
+        "sms": "$0.05 per message",
+        "whatsapp": "$0.01 per message",
+        "push": "$0"
+      },
+      "monthly_budget_integration": {
+        "test_costs_counted": true,
+        "warning_at_80_percent": true,
+        "block_at_100_percent": {
+          "email": false,
+          "sms": true,
+          "whatsapp": true,
+          "push": false
+        },
+        "admin_can_override": true,
+        "override_requires": "password + reason"
+      }
+    },
+
+    "database": {
+      "TemplateTest": {
+        "description": "سجل كل اختبار",
+        "fields": [
+          { "name": "id", "type": "uuid PK" },
+          { "name": "templateId", "type": "uuid FK → Template" },
+          { "name": "targetType", "type": "enum(email|phone|userId)" },
+          { "name": "targetValue", "type": "string" },
+          { "name": "variables", "type": "json" },
+          { "name": "renderedOutput", "type": "json (snapshot of rendered content)" },
+          { "name": "status", "type": "enum(pending|sent|failed|delivered)" },
+          { "name": "deliveryId", "type": "string? (provider ID)" },
+          { "name": "error", "type": "text?" },
+          { "name": "costUsd", "type": "decimal(10,4)" },
+          { "name": "createdById", "type": "uuid FK → User" },
+          { "name": "createdAt", "type": "datetime" },
+          { "name": "deliveredAt", "type": "datetime?" }
+        ],
+        "indexes": ["templateId", "status", "createdAt"]
+      }
+    },
+
+    "security": {
+      "access_control": {
+        "preview": "admin only",
+        "test_send": "admin only",
+        "test_history": "admin only",
+        "rate_limiting": {
+          "test_send_per_template": "3/min",
+          "test_send_per_admin": "10/min",
+          "batch_test": "1/5min"
+        }
+      },
+      "cost_control": {
+        "confirm_before_expensive": true,
+        "daily_limit_per_admin": "$5 (configurable)",
+        "monthly_test_budget": "$50 (separate from production)"
+      },
+      "audit": {
+        "log_every_test": true,
+        "log_preview": false,
+        "log_validation_fails": true
+      },
+      "data_protection": {
+        "no_sensitive_data_in_test": "لا يمكن اختبار قالب يحتوي على OTP/كلمات مرور",
+        "sanitize_variables": "HTML escape always"
+      }
+    },
+
+    "user_experience_flow": {
+      "scenario_1_first_preview": [
+        "1. Admin يحرر قالب جديد",
+        "2. يكتب في body → preview يتحدث فوراً (300ms debounce)",
+        "3. يرى المتغيرات غير المعبأة (warning)",
+        "4. ينقر 'بيانات تجريبية' → كل المتغيرات تُملأ",
+        "5. يبدل device → mobile → يرى كيف يبدو",
+        "6. يبدل locale → EN → يرى RTL/LTR",
+        "7. ينقر 'إرسال تجريبي'"
+      ],
+      "scenario_2_test_send": [
+        "1. Modal يفتح",
+        "2. Target: admin email (prefilled)",
+        "3. Variables: sample data (prefilled)",
+        "4. Cost: 🟢 بدون تكلفة",
+        "5. ينقر 'إرسال'",
+        "6. Loading → 'تم الإرسال'",
+        "7. يفتح البريد → يرى القالب",
+        "8. يُعلّم النتيجة في Test Log"
+      ],
+      "scenario_3_validation_fail": [
+        "1. Admin يكتب subject طويل جداً (200 char)",
+        "2. warning يظهر: 'الموضوع طويل جداً'",
+        "3. يختبر الإرسال",
+        "4. Modal يظهر: 'لا يمكن الإرسال'",
+        "5. قائمة الأخطاء + طريقة الإصلاح",
+        "6. يصحح → يختبر مرة أخرى → ✅"
+      ],
+      "scenario_4_whatsapp_test": [
+        "1. Admin يختبر قالب WhatsApp",
+        "2. Validation: template_name غير معتمد في Meta",
+        "3. Error: 'القالب غير معتمد — انتظر Meta أو أرسل للاعتماد'",
+        "4. Action: 'فتح Meta Console' → external link",
+        "5. بعد الاعتماد → test → ✅"
+      ]
+    },
+
+    "verification_checklist": {
+      "preview": [
+        "✅ Preview يعمل لكل 4 قنوات",
+        "✅ Live update < 500ms",
+        "✅ Device switch يعمل",
+        "✅ Locale switch يعمل",
+        "✅ Dark mode يعمل",
+        "✅ Variables sample fill يعمل",
+        "✅ Missing variables محذّر عنها",
+        "✅ Email inbox preview يعمل",
+        "✅ SMS character counter يعمل",
+        "✅ WhatsApp validation يعمل",
+        "✅ Push character limits تعمل"
+      ],
+      "validation": [
+        "✅ 5 stages تعمل",
+        "✅ Errors تظهر تحت الحقول",
+        "✅ Warnings لا تمنع",
+        "✅ Errors تمنع الإرسال",
+        "✅ Channel-specific validation تعمل",
+        "✅ External validation تعمل (Meta/SMTP/Twilio)"
+      ],
+      "test_send": [
+        "✅ Test send يعمل لكل قناة",
+        "✅ Target validation يعمل",
+        "✅ Cost warning يعمل",
+        "✅ Rate limiting يعمل",
+        "✅ Test log يُسجّل",
+        "✅ Real-time update يعمل",
+        "✅ Batch test يعمل"
+      ],
+      "security": [
+        "🚨 Admin only",
+        "🚨 Rate limiting على اختبارات",
+        "🚨 Daily cost limit",
+        "🚨 Audit log",
+        "🚨 OTP/password لا يمكن اختبارها"
+      ]
+    },
+
+    "statistics": {
+      "total_components": 12,
+      "total_endpoints": 6,
+      "total_tables": 1,
+      "total_validation_stages": 5,
+      "total_checks": 35,
+      "estimated_days": 4
+    }
+  }
+}

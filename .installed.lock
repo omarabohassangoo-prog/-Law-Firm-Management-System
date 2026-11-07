@@ -1,0 +1,18 @@
+{
+  "installed_at": "2026-11-07T16:22:16.980Z",
+  "installed_by": "system",
+  "version": "1.0.0",
+  "installation_id": "1d679069-8608-4a70-a743-0200c2987d73",
+  "checksum": "5ec2249c345cea8c44721a9414afcde8ef7438f7021bdacb1d2ab72d6590761e",
+  "phases_completed": [
+    "preflight",
+    "environment",
+    "database",
+    "migration",
+    "seed",
+    "super_admin",
+    "lock"
+  ],
+  "db_migration_hash": "aa7003d9192598a154ef6414a568f33c",
+  "admin_email": "admin@aladalah-law.com"
+}
