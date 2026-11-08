@@ -15,6 +15,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { useTranslation } from '../../utils/translations';
 import { DataTable, Column } from '../../components/ui/DataTable';
 import { Modal } from '../../components/ui/Modal';
+import { SignaturePadModal } from '../../components/ui/SignaturePadModal';
 import { DocumentItem } from '../../types';
 import {
   Plus,
@@ -29,12 +30,17 @@ import {
   CheckCircle2,
   Search,
   Filter,
+  PenTool,
+  Clock,
+  Hash,
 } from 'lucide-react';
 
 export const DocumentsPage: React.FC = () => {
-  const { locale, documents, cases, clients, currentUser, addDocument, deleteDocument, showToast } = useAppStore();
+  const { locale, documents, cases, clients, currentUser, addDocument, deleteDocument, signDocument, showToast } = useAppStore();
   const { user } = useAuthStore();
   const t = useTranslation(locale);
+
+  const [signingDoc, setSigningDoc] = useState<DocumentItem | null>(null);
 
   const activeRole = user?.role || currentUser.role;
   const activeUserId = user?.id || currentUser.id;
@@ -226,11 +232,44 @@ export const DocumentsPage: React.FC = () => {
       ),
     },
     {
+      key: 'isSigned',
+      header: locale === 'ar' ? 'حالة التوقيع' : 'E-Signature',
+      render: (item) => {
+        if (item.isSigned) {
+          return (
+            <div className="flex flex-col items-start gap-0.5">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                <span>موقع ومعتمد</span>
+              </span>
+              <span className="text-[9px] font-mono text-slate-400">
+                {item.signatureHash?.slice(0, 14)}...
+              </span>
+            </div>
+          );
+        }
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+            <span>بانتظار التوقيع</span>
+          </span>
+        );
+      },
+    },
+    {
       key: 'actions',
       header: t.actions,
       align: 'right',
       render: (item) => (
         <div className="flex items-center justify-end gap-1.5">
+          {!item.isSigned && (
+            <button
+              onClick={() => setSigningDoc(item)}
+              className="p-1.5 rounded text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+              title={locale === 'ar' ? 'توقيع إلكتروني معتمد' : 'Sign Document'}
+            >
+              <PenTool className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             onClick={() => setPreviewDoc(item)}
             className="p-1.5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -500,10 +539,42 @@ export const DocumentsPage: React.FC = () => {
                 <span className="text-slate-400">{locale === 'ar' ? 'حالة التشفير' : 'Encryption'}:</span>
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">AES-256 Rest Encrypted</span>
               </div>
+              {previewDoc.isSigned && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">{locale === 'ar' ? 'الموقع المعتمد' : 'Signed By'}:</span>
+                    <span className="font-bold text-emerald-600">{previewDoc.signedBy}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">{locale === 'ar' ? 'البصمة المشفرة' : 'Signature Hash'}:</span>
+                    <span className="font-mono text-[10px] text-slate-500">{previewDoc.signatureHash}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">{locale === 'ar' ? 'الختم الزمني TSA' : 'TSA Timestamp'}:</span>
+                    <span className="font-mono text-[10px] text-slate-500">{previewDoc.tsaTimestamp}</span>
+                  </div>
+                  {previewDoc.signatureDataUrl && (
+                    <div className="mt-2 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col items-center">
+                      <span className="text-[10px] text-slate-400 mb-1">صورة التوقيع الإلكتروني الحي</span>
+                      <img src={previewDoc.signatureDataUrl} alt="Signature" className="max-h-16 object-contain" />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </Modal>
       )}
+
+      {/* Signature Pad Modal */}
+      <SignaturePadModal
+        isOpen={Boolean(signingDoc)}
+        onClose={() => setSigningDoc(null)}
+        documentItem={signingDoc}
+        onSignComplete={(docId, signatureDataUrl, signerName) => {
+          signDocument(docId, signatureDataUrl, signerName);
+        }}
+      />
     </div>
   );
 };

@@ -2,187 +2,97 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "System user account with role and contact information",
+      "description": "System users and clients",
       "type": "object",
       "properties": {
-        "uid": { "type": "string", "description": "Firebase user ID" },
-        "name": { "type": "string", "maxLength": 100 },
-        "email": { "type": "string", "maxLength": 150 },
-        "role": { "type": "string", "enum": ["admin", "lawyer", "legal_assistant", "accountant", "secretary", "client"] },
-        "phone": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "inactive", "suspended"] },
-        "createdAt": { "type": "string" }
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["ADMIN", "LAWYER", "PARALEGAL", "ACCOUNTANT", "SECRETARY", "CLIENT"] },
+        "tenantId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "name", "email", "role"]
+      "required": ["id", "name", "email", "role", "tenantId"]
     },
     "Case": {
       "title": "Case",
-      "description": "Legal case record",
+      "description": "Legal cases",
       "type": "object",
       "properties": {
-        "caseNumber": { "type": "string", "maxLength": 50 },
-        "title": { "type": "string", "maxLength": 200 },
-        "clientName": { "type": "string" },
-        "clientId": { "type": "string" },
-        "lawyerId": { "type": "string" },
-        "courtName": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "closed", "pending", "appealed"] },
-        "progress": { "type": "integer" },
-        "nextHearingDate": { "type": "string" },
-        "createdAt": { "type": "string" }
-      },
-      "required": ["caseNumber", "title", "clientName", "status"]
-    },
-    "Client": {
-      "title": "Client",
-      "description": "Firm client record",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string", "maxLength": 100 },
-        "type": { "type": "string", "enum": ["individual", "corporate"] },
-        "nationalIdOrCr": { "type": "string" },
-        "phone": { "type": "string" },
-        "email": { "type": "string" },
-        "activeCasesCount": { "type": "integer" },
-        "status": { "type": "string", "enum": ["active", "inactive"] },
-        "createdAt": { "type": "string" }
-      },
-      "required": ["name", "type", "phone"]
-    },
-    "Invoice": {
-      "title": "Invoice",
-      "description": "Tax invoice with VAT calculation",
-      "type": "object",
-      "properties": {
-        "invoiceNumber": { "type": "string" },
-        "clientName": { "type": "string" },
-        "clientId": { "type": "string" },
-        "caseId": { "type": "string" },
-        "amount": { "type": "number" },
-        "vatAmount": { "type": "number" },
-        "totalAmount": { "type": "number" },
-        "status": { "type": "string", "enum": ["paid", "pending", "overdue"] },
-        "issueDate": { "type": "string" },
-        "dueDate": { "type": "string" },
-        "paidAt": { "type": "string" }
-      },
-      "required": ["invoiceNumber", "clientName", "amount", "totalAmount", "status"]
-    },
-    "Appointment": {
-      "title": "Appointment",
-      "description": "Court session or consultation appointment",
-      "type": "object",
-      "properties": {
+        "id": { "type": "string" },
+        "caseNumber": { "type": "string" },
         "title": { "type": "string" },
-        "type": { "type": "string", "enum": ["hearing", "consultation", "meeting"] },
-        "date": { "type": "string" },
-        "time": { "type": "string" },
-        "location": { "type": "string" },
-        "lawyerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "PENDING", "CLOSED", "ARCHIVED"] },
         "clientId": { "type": "string" },
-        "caseId": { "type": "string" },
-        "status": { "type": "string", "enum": ["confirmed", "pending", "cancelled", "completed"] }
+        "lawyerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "date", "time", "status"]
+      "required": ["id", "caseNumber", "title", "status", "clientId", "lawyerId"]
     },
     "Task": {
       "title": "Task",
-      "description": "Legal task item",
+      "description": "Law firm tasks",
       "type": "object",
       "properties": {
+        "id": { "type": "string" },
         "title": { "type": "string" },
-        "description": { "type": "string" },
+        "caseId": { "type": "string" },
         "assigneeId": { "type": "string" },
-        "caseId": { "type": "string" },
-        "priority": { "type": "string", "enum": ["high", "medium", "low"] },
-        "status": { "type": "string", "enum": ["todo", "in_progress", "done"] },
-        "dueDate": { "type": "string" }
+        "status": { "type": "string", "enum": ["TODO", "IN_PROGRESS", "DONE"] },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "status", "priority"]
+      "required": ["id", "title", "assigneeId", "status"]
     },
-    "Document": {
-      "title": "Document",
-      "description": "Privileged legal file document",
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Client invoices",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "fileName": { "type": "string" },
-        "fileType": { "type": "string" },
-        "fileSize": { "type": "string" },
-        "category": { "type": "string", "enum": ["contract", "pleading", "verdict", "evidence", "other"] },
-        "caseId": { "type": "string" },
-        "uploadedById": { "type": "string" },
-        "uploadedAt": { "type": "string" },
-        "encrypted": { "type": "boolean" }
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "clientId": { "type": "string" },
+        "total": { "type": "number" },
+        "status": { "type": "string", "enum": ["DRAFT", "SENT", "PAID", "OVERDUE"] }
       },
-      "required": ["title", "fileName", "category"]
+      "required": ["id", "invoiceNumber", "clientId", "total", "status"]
     },
-    "Notification": {
-      "title": "Notification",
-      "description": "System alert notification",
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Security logs",
       "type": "object",
       "properties": {
+        "id": { "type": "string" },
         "userId": { "type": "string" },
-        "type": { "type": "string", "enum": ["appointment", "invoice", "task", "case_update"] },
-        "title": { "type": "string" },
-        "message": { "type": "string" },
-        "read": { "type": "boolean" },
-        "createdAt": { "type": "string" }
+        "action": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["userId", "title", "message"]
-    },
-    "ContactMessage": {
-      "title": "ContactMessage",
-      "description": "Inquiry submitted through public contact form",
-      "type": "object",
-      "properties": {
-        "senderName": { "type": "string" },
-        "senderPhone": { "type": "string" },
-        "senderEmail": { "type": "string" },
-        "subject": { "type": "string" },
-        "message": { "type": "string" },
-        "status": { "type": "string", "enum": ["new", "read", "replied"] },
-        "createdAt": { "type": "string" }
-      },
-      "required": ["senderName", "senderPhone", "message"]
+      "required": ["id", "userId", "action"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
-      "description": "User profiles and permissions"
+      "description": "User profiles"
     },
     "/cases/{caseId}": {
       "schema": "Case",
-      "description": "Legal cases collection"
-    },
-    "/clients/{clientId}": {
-      "schema": "Client",
-      "description": "Clients registry"
-    },
-    "/invoices/{invoiceId}": {
-      "schema": "Invoice",
-      "description": "Invoices and tax payments"
-    },
-    "/appointments/{appointmentId}": {
-      "schema": "Appointment",
-      "description": "Hearings and appointments"
+      "description": "Legal cases"
     },
     "/tasks/{taskId}": {
       "schema": "Task",
-      "description": "Legal tasks backlog"
+      "description": "Tasks"
     },
-    "/documents/{documentId}": {
-      "schema": "Document",
-      "description": "Case files and documents"
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Invoices"
     },
-    "/notifications/{notificationId}": {
-      "schema": "Notification",
-      "description": "User notifications"
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Security logs"
     },
-    "/contactMessages/{messageId}": {
-      "schema": "ContactMessage",
-      "description": "Public website contact inquiries"
+    "/templates/{templateId}": {
+      "schema": "PrintTemplate",
+      "description": "Templates"
     }
   }
 }

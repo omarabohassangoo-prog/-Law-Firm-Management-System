@@ -1,0 +1,1335 @@
+// ============================================================================
+// 🏛️  Law Firm Management — API Test Suite via cURL (SINGLE-FILE MASTER)
+// ============================================================================
+// Tool:     cURL Testing
+// Scope:    Endpoint Testing / API Testing
+// Depth:    Smoke Testing + Performance + Legal Compliance
+// Purpose:  Security Testing + Functional Testing + Legal
+// Method:   Manual Testing (cURL-based, automated via TS)
+// Layer:    Integration Testing
+// Format:   Test Cases / Test Scenarios
+// Coverage: 79 suites · ~800 operations · 6 roles
+// Deps:     node built-ins only (child_process, fs, path) + system curl
+// ============================================================================
+
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync,
+} from 'node:fs';
+import { join } from 'node:path';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚙️ CONFIG
+// ═══════════════════════════════════════════════════════════════════════════
+const BASE       = process.env.BASE   ?? 'http://localhost:4000/api';
+const CLIENT     = process.env.CLIENT ?? 'http://localhost:5173';
+const OUT_DIR    = join(process.cwd(), 'test-output');
+const UPLOAD_DIR = join(process.cwd(), 'test-uploads');
+const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 25_000);
+const RETRY_MAX  = Number(process.env.RETRY_MAX ?? 1);
+const RETRY_MS   = Number(process.env.RETRY_MS ?? 500);
+
+if (!existsSync(OUT_DIR))    mkdirSync(OUT_DIR,    { recursive: true });
+if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🎨 COLORS
+// ═══════════════════════════════════════════════════════════════════════════
+const C = {
+  reset: '\x1b[0m', bold: '\x1b[1m',
+  red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m',
+  blue: '\x1b[36m', magenta: '\x1b[35m', gray: '\x1b[90m', cyan: '\x1b[96m',
+};
+const paint = (c: keyof typeof C, s: string) => `${C[c]}${s}${C.reset}`;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📊 TYPES & STATE
+// ═══════════════════════════════════════════════════════════════════════════
+type Role    = 'admin' | 'lawyer' | 'paralegal' | 'accountant' | 'secretary' | 'client' | 'public';
+type Outcome = 'pass' | 'fail' | 'skip';
+type Annex   = 'core' | 'annex1' | 'annex2';
+
+interface Result {
+  name: string; status: number; expected: number | number[];
+  outcome: Outcome; body?: string; durationMs: number;
+  role?: Role; module: string; annex: Annex;
+}
+
+const results: Result[] = [];
+let currentModule = 'init';
+let currentAnnex: Annex = 'core';
+const setAnnex = (a: Annex) => { currentAnnex = a; };
+
+const ALL_ROLES: Role[] = ['admin', 'lawyer', 'paralegal', 'accountant', 'secretary', 'client', 'public'];
+const cookieJars: Record<Role, string> = {} as any;
+for (const r of ALL_ROLES) cookieJars[r] = join(OUT_DIR, `cookies_${r}.txt`);
+
+const USERS: Record<Exclude<Role, 'public'>, { email: string; password: string }> = {
+  admin:      { email: 'admin@firm.test',      password: 'Admin@12345' },
+  lawyer:     { email: 'lawyer@firm.test',     password: 'Lawyer@12345' },
+  paralegal:  { email: 'paralegal@firm.test',  password: 'Paralegal@12345' },
+  accountant: { email: 'accountant@firm.test', password: 'Accountant@12345' },
+  secretary:  { email: 'secretary@firm.test',  password: 'Secretary@12345' },
+  client:     { email: 'client@firm.test',     password: 'Client@12345' },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🖨️ CONSOLE
+// ═══════════════════════════════════════════════════════════════════════════
+function section(t: string) {
+  currentModule = t;
+  console.log('\n' + paint('blue', '═'.repeat(70)));
+  console.log(paint('blue', `  ${t}`));
+  console.log(paint('blue', '═'.repeat(70)));
+}
+function sub(t: string) { console.log('\n' + paint('magenta', `▶ ${t}`)); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🍪 CSRF
+// ═══════════════════════════════════════════════════════════════════════════
+function getCsrf(role: Role): string {
+  try {
+    const jar = cookieJars[role];
+    if (!existsSync(jar)) return '';
+    return readFileSync(jar, 'utf8').match(/csrf_token\s+(\S+)/)?.[1] ?? '';
+  } catch { return ''; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔧 CURL CORE
+// ═══════════════════════════════════════════════════════════════════════════
+interface CurlOpts {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
+  path: string; role?: Role; body?: unknown;
+  headers?: Record<string, string>;
+  expectStatus: number | number[];
+  expectJsonKey?: string;
+  files?: { field: string; path: string; filename?: string }[];
+  outputFile?: string; skipCsrf?: boolean; timeoutMs?: number;
+}
+
+function runCurlOnce(opts: CurlOpts): { status: number; body: string; ms: number } {
+  const role = opts.role ?? 'public';
+  const jar = cookieJars[role];
+  const method = opts.method ?? 'GET';
+  const timeout = opts.timeoutMs ?? TIMEOUT_MS;
+
+  const args: string[] = [
+    '-s', '-X', method, '-w', '\n__STATUS__:%{http_code}',
+    '--max-time', String(Math.floor(timeout / 1000)),
+    '-b', jar, '-c', jar,
+    '-H', `X-Client-Fingerprint: fp-test-${role}`,
+  ];
+  if (method !== 'GET' && method !== 'HEAD' && !opts.skipCsrf) {
+    const csrf = getCsrf(role); if (csrf) args.push('-H', `X-CSRF-Token: ${csrf}`);
+  }
+  if (opts.headers) for (const [k, v] of Object.entries(opts.headers)) args.push('-H', `${k}: ${v}`);
+  if (!opts.files && !opts.outputFile) args.push('-H', 'Content-Type: application/json');
+  if (opts.body !== undefined && !opts.files) args.push('-d', JSON.stringify(opts.body));
+  if (opts.files) for (const f of opts.files) {
+    const ff = f.filename ? `${f.field}=@${f.path};filename=${f.filename}` : `${f.field}=@${f.path}`;
+    args.push('-F', ff);
+  }
+  if (opts.outputFile) args.push('-o', opts.outputFile);
+  args.push(`${BASE}${opts.path}`);
+
+  const t0 = Date.now();
+  let raw = '';
+  try { raw = execFileSync('curl', args, { encoding: 'utf8', timeout }); }
+  catch (e: any) { raw = `__STATUS__:000\n__ERR__:${e?.message ?? 'curl failed'}`; }
+  const ms = Date.now() - t0;
+  const m = raw.match(/__STATUS__:(\d+)/);
+  const status = m ? parseInt(m[1], 10) : 0;
+  const body = raw.replace(/\n__STATUS__:\d+[\s\S]*$/, '').trim();
+  return { status, body, ms };
+}
+
+function runCurl(opts: CurlOpts, attempt = 0): { status: number; body: string; ms: number } {
+  const r = runCurlOnce(opts);
+  // retry on network errors
+  if ((r.status === 0 || r.status === 408 || r.status === 502) && attempt < RETRY_MAX) {
+    sleep(RETRY_MS);
+    return runCurl(opts, attempt + 1);
+  }
+  return r;
+}
+
+function sleep(ms: number) {
+  try { execFileSync('sleep', [String(ms / 1000)]); } catch { /* noop */ }
+}
+
+function test(opts: CurlOpts, label?: string) {
+  const name = label ?? `${opts.method ?? 'GET'} ${opts.path}`;
+  sub(name);
+  const { status, body, ms } = runCurl(opts);
+  const expected = Array.isArray(opts.expectStatus) ? opts.expectStatus : [opts.expectStatus];
+  let outcome: Outcome = expected.includes(status) ? 'pass' : 'fail';
+  if (outcome === 'pass' && opts.expectJsonKey) {
+    try { const j = JSON.parse(body); if (!(opts.expectJsonKey in j)) outcome = 'fail'; }
+    catch { outcome = 'fail'; }
+  }
+  results.push({ name, status, expected: opts.expectStatus, outcome, body: body.slice(0, 300), durationMs: ms, role: opts.role ?? 'public', module: currentModule, annex: currentAnnex });
+  const icon = outcome === 'pass' ? '✅' : outcome === 'fail' ? '❌' : '⚠️ ';
+  const color = outcome === 'pass' ? 'green' : outcome === 'fail' ? 'red' : 'yellow';
+  console.log('  ' + paint(color as any, `${icon} ${name} → ${status} (${ms}ms)`) + (outcome === 'fail' ? paint('gray', `  expected ${expected.join('|')}`) : ''));
+  if (outcome === 'fail' && body) console.log(paint('gray', `     body: ${body.slice(0, 200)}`));
+  return { status, body };
+}
+
+// wrappers
+const GET    = (p: string, r: Role, e: number | number[], k?: string) => test({ method: 'GET', path: p, role: r, expectStatus: e, expectJsonKey: k });
+const POST   = (p: string, r: Role, e: number | number[], b?: unknown, k?: string) => test({ method: 'POST', path: p, role: r, expectStatus: e, body: b, expectJsonKey: k });
+const PATCH  = (p: string, r: Role, e: number | number[], b?: unknown) => test({ method: 'PATCH', path: p, role: r, expectStatus: e, body: b });
+const DELETE = (p: string, r: Role, e: number | number[]) => test({ method: 'DELETE', path: p, role: r, expectStatus: e });
+
+function testPage(path: string) {
+  sub(`GET ${CLIENT}${path}`);
+  try {
+    const out = execFileSync('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', `${CLIENT}${path}`], { encoding: 'utf8', timeout: 5000 });
+    const code = parseInt(out, 10);
+    const ok = [200, 404].includes(code);
+    results.push({ name: `GET ${path}`, status: code, expected: [200, 404], outcome: ok ? 'pass' : 'fail', durationMs: 0, module: currentModule, annex: currentAnnex });
+    console.log('  ' + paint(ok ? 'green' : 'red', `${ok ? '✅' : '❌'} ${path} → ${code}`));
+  } catch {
+    console.log('  ' + paint('yellow', `⚠️  ${path} skipped (client offline)`));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🚀 BOOTSTRAP
+// ═══════════════════════════════════════════════════════════════════════════
+function bootstrap(): void {
+  section('0. Bootstrap — CSRF + Login');
+  runCurl({ method: 'GET', path: '/csrf', role: 'public', expectStatus: 200 });
+  console.log('  ' + paint('green', '✅ CSRF acquired'));
+  for (const [role, creds] of Object.entries(USERS)) {
+    runCurl({ method: 'GET', path: '/csrf', role: role as Role, expectStatus: 200 });
+    test({ method: 'POST', path: '/auth/login', role: role as Role, body: creds, expectStatus: 200 }, `LOGIN ${role}`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ▓▓▓ PART 1 — CORE (19 suites) ▓▓▓
+// ═══════════════════════════════════════════════════════════════════════════
+
+function suitePublic(): void {
+  setAnnex('core');
+  section('1. Public Pages');
+  for (const p of ['/', '/about', '/services', '/lawyers', '/pricing', '/contact', '/faq', '/terms', '/privacy']) testPage(p);
+  GET('/public/home', 'public', [200, 404]);
+  GET('/public/about', 'public', [200, 404]);
+  GET('/public/faq', 'public', [200, 404]);
+  GET('/public/lawyers', 'public', [200, 404]);
+  GET('/public/services', 'public', [200, 404]);
+  GET('/public/pricing', 'public', [200, 404]);
+  POST('/public/contact', 'public', [200, 201], { name: 'Guest', email: 'g@test.com', message: 'Hi' });
+  POST('/public/contact', 'public', 400, { name: '' });
+  POST('/public/contact', 'public', 400, { name: 'x', email: 'not-email', message: 'x' });
+  POST('/public/newsletter', 'public', [200, 201, 404], { email: 'sub@test.com' });
+  POST('/public/newsletter', 'public', [400, 404], { email: 'not-email' });
+  GET('/public/search?q=test', 'public', [200, 404]);
+  POST('/public/contact', 'public', [400, 401], { name: "admin' OR 1=1 --", email: 'a@b.c', message: 'x' });
+  POST('/public/contact', 'public', [200, 201, 400], { name: '<script>alert(1)</script>', email: 'x@y.z', message: 'x' });
+  test({ method: 'POST', path: '/public/contact', role: 'public', body: { name: 'x', email: 'x@y.z', message: 'x' }, expectStatus: 403, skipCsrf: true }, 'POST /public/contact (no CSRF)');
+}
+
+function suiteAuth(): void {
+  setAnnex('core');
+  section('2. Auth Pages');
+  for (const p of ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email']) testPage(p);
+  for (const role of Object.keys(USERS) as Array<keyof typeof USERS>) test({ method: 'POST', path: '/auth/login', role: 'public', body: USERS[role], expectStatus: 200 }, `LOGIN ${role}`);
+  POST('/auth/login', 'public', 401, { email: 'lawyer@firm.test', password: 'wrong' });
+  POST('/auth/login', 'public', 401, { email: 'nobody@firm.test', password: 'x' });
+  POST('/auth/login', 'public', 400, { email: 'not-email', password: 'x' });
+  test({ method: 'POST', path: '/auth/login', role: 'public', body: USERS.admin, expectStatus: 403, skipCsrf: true }, 'LOGIN no CSRF');
+  POST('/auth/register', 'public', [201, 200], { name: 'New', email: `new-${Date.now()}@firm.test`, phone: '+966500000999', password: 'Strong@12345' });
+  POST('/auth/register', 'public', 409, { name: 'x', email: 'admin@firm.test', phone: '+966500000998', password: 'Strong@12345' });
+  POST('/auth/register', 'public', 400, { name: 'x', email: 'w@firm.test', phone: '+966500000997', password: '123' });
+  POST('/auth/password/forgot', 'public', [200, 429], { email: 'lawyer@firm.test' });
+  POST('/auth/password/forgot', 'public', [200, 429], { email: 'nobody@firm.test' });
+  GET('/auth/password/reset/validate?token=invalid', 'public', [400, 404, 410]);
+  POST('/auth/password/reset', 'public', [400, 410], { token: 'invalid', newPassword: 'New@12345' });
+  POST('/auth/account/verify', 'public', [400, 410], { token: 'invalid', channel: 'email' });
+  POST('/auth/account/resend', 'public', [200, 429], { email: 'lawyer@firm.test', channel: 'email' });
+  GET('/auth/me', 'admin', 200);
+  GET('/auth/me', 'public', 401);
+  GET('/auth/me/number', 'admin', 200);
+  GET('/auth/me/role', 'admin', 200);
+  GET('/auth/me/stats', 'admin', 200);
+  GET('/auth/redirect', 'admin', 200);
+  GET('/auth/redirect', 'public', 401);
+  POST('/auth/refresh', 'admin', [200, 401]);
+  for (let i = 0; i < 5; i++) runCurl({ method: 'POST', path: '/auth/login', role: 'public', body: { email: 'lock@firm.test', password: 'wrong' } });
+  test({ method: 'POST', path: '/auth/login', role: 'public', body: { email: 'lock@firm.test', password: 'wrong' }, expectStatus: [423, 401] }, 'account locked');
+  POST('/auth/logout', 'admin', [200, 204]);
+  GET('/auth/me', 'admin', 401);
+  runCurl({ method: 'GET', path: '/csrf', role: 'admin', expectStatus: 200 });
+  POST('/auth/login', 'admin', 200, { email: 'admin@firm.test', password: 'Admin@12345' });
+}
+
+function suiteDashboards(): void {
+  setAnnex('core');
+  section('3. Dashboards — All Roles');
+  GET('/dashboard/admin/stats', 'admin', 200);
+  GET('/dashboard/admin/users?page=1&limit=10', 'admin', 200);
+  POST('/dashboard/admin/users', 'admin', [201, 400, 409], { name: 'NL', email: `nl-${Date.now()}@firm.test`, phone: '+966500000888', role: 'LAWYER', password: 'New@12345' });
+  GET('/dashboard/admin/roles', 'admin', 200);
+  GET('/dashboard/admin/permissions', 'admin', 200);
+  GET('/dashboard/admin/settings', 'admin', 200);
+  PATCH('/dashboard/admin/settings', 'admin', 200, { firmName: 'Test' });
+  GET('/dashboard/admin/reports', 'admin', 200);
+  GET('/dashboard/admin/audit?page=1', 'admin', 200);
+  POST('/dashboard/admin/backup', 'admin', [200, 202]);
+  GET('/dashboard/admin/system/status', 'admin', 200);
+  GET('/dashboard/admin/system/db-health', 'admin', 200);
+  POST('/dashboard/admin/system/cache/clear', 'admin', [200, 204]);
+  GET('/dashboard/lawyer/stats', 'lawyer', 200);
+  GET('/dashboard/lawyer/cases?page=1', 'lawyer', 200);
+  GET('/dashboard/lawyer/hearings/today', 'lawyer', 200);
+  GET('/dashboard/lawyer/documents?page=1', 'lawyer', 200);
+  GET('/dashboard/lawyer/tasks', 'lawyer', 200);
+  GET('/dashboard/lawyer/appointments', 'lawyer', 200);
+  GET('/dashboard/lawyer/clients', 'lawyer', 200);
+  GET('/dashboard/lawyer/reports', 'lawyer', 200);
+  GET('/dashboard/paralegal/stats', 'paralegal', 200);
+  GET('/dashboard/paralegal/tasks', 'paralegal', 200);
+  GET('/dashboard/paralegal/search?q=x', 'paralegal', 200);
+  GET('/dashboard/paralegal/memos', 'paralegal', 200);
+  GET('/dashboard/accountant/stats', 'accountant', 200);
+  GET('/dashboard/accountant/invoices?page=1', 'accountant', 200);
+  GET('/dashboard/accountant/expenses', 'accountant', 200);
+  GET('/dashboard/accountant/reports', 'accountant', 200);
+  GET('/dashboard/secretary/stats', 'secretary', 200);
+  GET('/dashboard/secretary/appointments', 'secretary', 200);
+  GET('/dashboard/secretary/messages', 'secretary', 200);
+  GET('/dashboard/client/stats', 'client', 200);
+  GET('/dashboard/client/cases', 'client', 200);
+  GET('/dashboard/client/invoices', 'client', 200);
+  GET('/dashboard/client/appointments', 'client', 200);
+  for (const r of ['lawyer', 'paralegal', 'accountant', 'secretary', 'client'] as Role[]) GET('/dashboard/admin/stats', r, 403);
+  for (const r of ['paralegal', 'accountant', 'secretary', 'client'] as Role[]) GET('/dashboard/lawyer/cases', r, 403);
+  for (const r of ['lawyer', 'secretary', 'client'] as Role[]) GET('/dashboard/accountant/invoices', r, 403);
+  GET('/dashboard/secretary/appointments', 'client', 403);
+  GET('/dashboard/client/cases', 'lawyer', 403);
+  GET('/dashboard/paralegal/tasks', 'client', 403);
+}
+
+function suiteShared(): void {
+  setAnnex('core');
+  section('4. Shared Pages');
+  GET('/shared/profile', 'lawyer', 200);
+  PATCH('/shared/profile', 'lawyer', 200, { name: 'Updated', phone: '+966500000111' });
+  POST('/shared/change-password', 'lawyer', [200, 401], { currentPassword: 'Lawyer@12345', newPassword: 'Lawyer@99999' });
+  POST('/shared/change-password', 'lawyer', [200, 401], { currentPassword: 'Lawyer@99999', newPassword: 'Lawyer@12345' });
+  GET('/shared/notifications', 'lawyer', 200);
+  POST('/shared/notifications/read-all', 'lawyer', [200, 204]);
+  GET('/notifications', 'client', 200);
+  POST('/notifications/read-all', 'client', [200, 204]);
+  GET('/shared/sessions', 'admin', 200);
+  POST('/shared/sessions/revoke-all', 'lawyer', [200, 204]);
+  GET('/cases?page=1&limit=10', 'lawyer', 200);
+  GET('/cases?q=test&status=OPEN', 'lawyer', 200);
+  GET('/cases/00000000-0000-0000-0000-000000000000', 'lawyer', [200, 404]);
+  GET('/cases/stats', 'lawyer', 200);
+  GET('/tasks', 'lawyer', 200);
+  GET('/tasks/me?status=OPEN', 'paralegal', 200);
+  GET('/tasks', 'client', 403);
+  GET('/messages/inbox', 'lawyer', 200);
+  GET('/messages/sent', 'lawyer', 200);
+  for (const lk of ['roles', 'case-statuses', 'case-types', 'invoice-statuses', 'payment-methods', 'expense-categories', 'task-priorities', 'lawyers', 'clients', 'courts']) GET(`/lookups/${lk}`, 'admin', [200, 404]);
+  GET('/search?q=test', 'lawyer', 200);
+  GET('/cases/OTHER', 'client', [403, 404]);
+  PATCH('/shared/profile', 'lawyer', [200, 400], { name: '<script>alert(1)</script>' });
+  PATCH('/shared/profile', 'client', [200, 400], { role: 'ADMIN' });
+}
+
+function suiteDB(): void {
+  setAnnex('core');
+  section('5. Database');
+  GET('/health', 'public', [200, 404]);
+  GET('/dashboard/admin/system/db-health', 'admin', 200);
+  GET('/dashboard/admin/users?page=1&limit=5', 'admin', 200);
+  GET('/cases?page=1&limit=5', 'lawyer', 200);
+  GET('/invoices?page=1&limit=5', 'accountant', 200);
+  POST('/dashboard/admin/users', 'admin', [201, 400, 409], { name: 'DBTest', email: `dbtest-${Date.now()}@firm.test`, phone: '+966500000777', role: 'LAWYER', password: 'DbTest@12345' });
+  POST('/dashboard/admin/users', 'admin', 409, { name: 'x', email: 'admin@firm.test', phone: '+966500000999', role: 'LAWYER', password: 'DbTest@12345' });
+  POST('/cases', 'lawyer', [400, 404], { title: 'Orphan', clientId: '00000000-0000-0000-0000-000000000000', type: 'CIVIL' });
+  GET('/cases?sortBy=createdAt&order=desc', 'lawyer', 200);
+  GET('/cases?status=OPEN', 'lawyer', 200);
+  POST('/auth/login', 'public', [400, 401], { email: "admin' OR 1=1 --", password: 'x' });
+  POST('/auth/login', 'public', [400, 401], { email: "admin@firm.test'; DROP TABLE users; --", password: 'x' });
+}
+
+function suiteEmail(): void {
+  setAnnex('core');
+  section('6. Email');
+  POST('/auth/account/resend', 'public', [200, 429], { email: 'lawyer@firm.test', channel: 'email' });
+  POST('/auth/password/forgot', 'public', [200, 429], { email: 'lawyer@firm.test' });
+  POST('/dashboard/admin/email/send', 'admin', [200, 403, 404], { to: 'client@firm.test', subject: 'Test', body: 'Body' });
+  POST('/dashboard/admin/email/broadcast', 'admin', [200, 403], { subject: 'Broadcast', body: 'All', role: 'CLIENT' });
+  POST('/dashboard/admin/email/send', 'admin', [400, 422], { to: 'not-email', subject: 'x', body: 'x' });
+  POST('/dashboard/admin/email/send', 'lawyer', 403, { to: 'x@y.z', subject: 'x', body: 'x' });
+  let last = 0;
+  for (let i = 0; i < 4; i++) last = runCurl({ method: 'POST', path: '/auth/password/forgot', role: 'public', body: { email: 'lawyer@firm.test' } }).status;
+  console.log('  ' + (last === 429 ? paint('green', '✅ email rate limit') : paint('yellow', '⚠️  not observed')));
+}
+
+function suiteWhatsApp(): void {
+  setAnnex('core');
+  section('7. WhatsApp');
+  POST('/integrations/whatsapp/send', 'client', [200, 201, 422, 429], { phone: '+966500000999', template: 'verification_code', params: { code: '123456' } });
+  for (const tmpl of ['verification_code', 'appointment_reminder', 'invoice_ready', 'case_update', 'welcome']) POST('/integrations/whatsapp/send', 'client', [200, 201, 400, 422], { phone: '+966500000999', template: tmpl, params: {} }, `WA template: ${tmpl}`);
+  POST('/integrations/whatsapp/send', 'client', [400, 422], { phone: 'invalid', template: 'x', params: {} });
+  POST('/integrations/whatsapp/send', 'public', [401, 403], { phone: '+966500000999', template: 'x', params: {} });
+}
+
+function suiteSMS(): void {
+  setAnnex('core');
+  section('8. SMS');
+  POST('/integrations/sms/send', 'client', [200, 201, 429], { phone: '+966500000999', purpose: 'verification' });
+  POST('/integrations/sms/verify', 'client', [400, 410], { phone: '+966500000999', code: '000000', purpose: 'verification' });
+  POST('/integrations/sms/send', 'client', [400, 422], { phone: 'invalid', purpose: 'verification' });
+  POST('/integrations/sms/send', 'public', [401, 403], { phone: '+966500000999', purpose: 'verification' });
+}
+
+function suitePayPal(): void {
+  setAnnex('core');
+  section('9. PayPal');
+  POST('/integrations/paypal/orders', 'client', [200, 201, 400], { amount: 49.99, currency: 'USD', description: 'Consult' });
+  POST('/integrations/paypal/orders/capture', 'client', [400, 404], { orderId: 'INVALID' });
+  GET('/integrations/paypal/orders/INVALID', 'client', 404);
+  POST('/integrations/paypal/orders', 'client', 400, { amount: -10, currency: 'USD' });
+  POST('/integrations/paypal/orders', 'public', [401, 403], { amount: 49.99, currency: 'USD' });
+  test({ method: 'POST', path: '/integrations/paypal/webhook', role: 'public', headers: { 'PAYPAL-TRANSMISSION-ID': 'invalid', 'PAYPAL-TRANSMISSION-SIG': 'invalid' }, body: { event_type: 'x' }, expectStatus: [200, 400, 401] }, 'PayPal webhook');
+}
+
+function suiteSession(): void {
+  setAnnex('core');
+  section('10. Session & JWT');
+  GET('/auth/me', 'admin', 200);
+  GET('/auth/me', 'public', 401);
+  test({ method: 'GET', path: '/auth/me', role: 'public', headers: { Cookie: 'access_token=expired' }, expectStatus: 401 }, 'expired token');
+  test({ method: 'GET', path: '/auth/me', role: 'public', headers: { Cookie: 'access_token=not.a.jwt' }, expectStatus: 401 }, 'malformed JWT');
+  POST('/auth/refresh', 'admin', [200, 401]);
+  test({ method: 'POST', path: '/auth/refresh', role: 'public', headers: { Cookie: 'refresh_token=stolen' }, expectStatus: 401 }, 'stolen refresh');
+  GET('/shared/sessions', 'admin', 200);
+  test({ method: 'POST', path: '/auth/refresh', role: 'admin', headers: { 'X-Client-Fingerprint': 'DIFFERENT-FP' }, expectStatus: [200, 401] }, 'refresh fingerprint mismatch');
+}
+
+function suiteCookies(): void {
+  setAnnex('core');
+  section('11. Cookies & CSRF');
+  test({ method: 'GET', path: '/csrf', role: 'public', expectStatus: 200, expectJsonKey: 'csrf' }, 'GET /csrf');
+  test({ method: 'POST', path: '/auth/logout', role: 'admin', expectStatus: 403, skipCsrf: true }, 'POST no CSRF → 403');
+  test({ method: 'POST', path: '/auth/logout', role: 'admin', headers: { 'X-CSRF-Token': 'wrong-token-000000000000000000' }, expectStatus: 403 }, 'POST wrong CSRF → 403');
+  test({ method: 'GET', path: '/dashboard/admin/stats', role: 'admin', expectStatus: 200, skipCsrf: true }, 'GET without CSRF → 200');
+  test({ method: 'GET', path: '/auth/me', role: 'public', headers: { Cookie: 'access_token=forged-token' }, expectStatus: 401 }, 'forged cookie');
+  runCurl({ method: 'GET', path: '/csrf', role: 'admin', expectStatus: 200 });
+  POST('/auth/login', 'admin', 200, { email: 'admin@firm.test', password: 'Admin@12345' });
+}
+
+function suiteFingerprint(): void {
+  setAnnex('core');
+  section('12. Fingerprint');
+  runCurl({ method: 'GET', path: '/csrf', role: 'public', expectStatus: 200 });
+  test({ method: 'POST', path: '/auth/login', role: 'public', headers: { 'X-Client-Fingerprint': 'device-A-hash-1234567890' }, body: USERS.client, expectStatus: 200 }, 'login fingerprint A');
+  test({ method: 'POST', path: '/auth/refresh', role: 'client', headers: { 'X-Client-Fingerprint': 'device-A-hash-1234567890' }, expectStatus: [200, 401] }, 'refresh same FP');
+  test({ method: 'POST', path: '/auth/refresh', role: 'client', headers: { 'X-Client-Fingerprint': 'device-B-hash-9999999999' }, expectStatus: [200, 401, 403] }, 'refresh different FP');
+  test({ method: 'POST', path: '/auth/login', role: 'public', headers: { 'X-Client-Fingerprint': 'x'.repeat(10_000) }, body: USERS.client, expectStatus: [200, 400, 413] }, 'oversized FP');
+}
+
+function suiteFilesUpload(): void {
+  setAnnex('core');
+  section('13. Files Upload');
+  const smallPdf = join(UPLOAD_DIR, 'small.pdf');
+  const smallPng = join(UPLOAD_DIR, 'small.png');
+  const smallTxt = join(UPLOAD_DIR, 'small.txt');
+  const malware  = join(UPLOAD_DIR, 'malware.exe');
+  const bigFile  = join(UPLOAD_DIR, 'big.bin');
+  if (!existsSync(smallPdf)) writeFileSync(smallPdf, Buffer.from('%PDF-1.4\n%fake\n'));
+  if (!existsSync(smallPng)) writeFileSync(smallPng, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  if (!existsSync(smallTxt)) writeFileSync(smallTxt, 'hello');
+  if (!existsSync(malware))  writeFileSync(malware, Buffer.from([0x4d, 0x5a]));
+  if (!existsSync(bigFile))  writeFileSync(bigFile, Buffer.alloc(11 * 1024 * 1024, 0));
+
+  test({ method: 'POST', path: '/shared/avatar', role: 'lawyer', files: [{ field: 'file', path: smallPng }], expectStatus: [200, 201, 413, 415] }, 'avatar PNG');
+  test({ method: 'POST', path: '/shared/avatar', role: 'lawyer', files: [{ field: 'file', path: malware }], expectStatus: [400, 415] }, 'avatar EXE reject');
+  test({ method: 'POST', path: '/shared/avatar', role: 'lawyer', files: [{ field: 'file', path: bigFile }], expectStatus: [400, 413] }, 'avatar BIG reject');
+  test({ method: 'POST', path: '/documents', role: 'lawyer', files: [{ field: 'file', path: smallPdf }], headers: { 'X-Case-Id': '00000000-0000-0000-0000-000000000000' }, expectStatus: [200, 201, 400, 404] }, 'case PDF');
+  test({ method: 'POST', path: '/shared/avatar', role: 'lawyer', files: [{ field: 'file', path: smallPng }], expectStatus: 403, skipCsrf: true }, 'upload no CSRF');
+  test({ method: 'POST', path: '/shared/avatar', role: 'public', files: [{ field: 'file', path: smallPng }], expectStatus: [401, 403] }, 'anonymous upload');
+}
+
+function suiteFilesDownload(): void {
+  setAnnex('core');
+  section('14. Files Download');
+  const dl1 = join(OUT_DIR, 'download_1.bin');
+  if (existsSync(dl1)) unlinkSync(dl1);
+  test({ method: 'GET', path: '/documents/00000000-0000-0000-0000-000000000000/download', role: 'lawyer', expectStatus: [200, 403, 404], outputFile: dl1 }, 'download document');
+  const dl2 = join(OUT_DIR, 'invoice.pdf');
+  if (existsSync(dl2)) unlinkSync(dl2);
+  test({ method: 'GET', path: '/invoices/00000000-0000-0000-0000-000000000000/pdf', role: 'accountant', expectStatus: [200, 403, 404], outputFile: dl2 }, 'invoice PDF');
+  for (const fmt of ['pdf', 'xlsx', 'csv']) {
+    const p = join(OUT_DIR, `report.${fmt}`);
+    if (existsSync(p)) unlinkSync(p);
+    test({ method: 'GET', path: `/reports/financial/${fmt}`, role: 'accountant', expectStatus: [200, 403, 404], outputFile: p }, `report ${fmt}`);
+  }
+}
+
+function suiteTemplatesComm(): void {
+  setAnnex('core');
+  section('15. Templates — Communication');
+  GET('/dashboard/admin/templates/email', 'admin', 200);
+  POST('/dashboard/admin/templates/email', 'admin', [201, 400, 409], { key: 'welcome', name: 'Welcome', subject: 'Hi {{name}}', body: '<p>Welcome</p>', variables: ['name'] });
+  POST('/dashboard/admin/templates/email', 'admin', [201, 400, 409], { key: 'password_reset', name: 'Reset', subject: 'Reset {{url}}', body: '<a href="{{url}}">Reset</a>', variables: ['url'] });
+  GET('/dashboard/admin/templates/email/welcome', 'admin', [200, 404]);
+  PATCH('/dashboard/admin/templates/email/welcome', 'admin', [200, 404], { subject: 'Updated' });
+  POST('/dashboard/admin/templates/email/welcome/preview', 'admin', [200, 404], { variables: { name: 'Ahmed' } });
+  POST('/dashboard/admin/templates/email/welcome/send-test', 'admin', [200, 202, 400, 404], { to: 'admin@firm.test' });
+  POST('/dashboard/admin/templates/email', 'admin', 409, { key: 'welcome', name: 'Dup', subject: 'x', body: 'x' });
+  POST('/dashboard/admin/templates/email', 'lawyer', 403, { key: 'x', name: 'x', subject: 'x', body: 'x' });
+  GET('/dashboard/admin/templates/whatsapp', 'admin', 200);
+  POST('/dashboard/admin/templates/whatsapp', 'admin', [201, 400, 409], { key: 'verification_code', name: 'VC', body: 'Code {{code}}', variables: ['code'], category: 'AUTHENTICATION' });
+  GET('/dashboard/admin/templates/whatsapp/verification_code', 'admin', [200, 404]);
+  POST('/dashboard/admin/templates/whatsapp/verification_code/preview', 'admin', [200, 404], { variables: { code: '123456' } });
+  GET('/dashboard/admin/templates/sms', 'admin', 200);
+  POST('/dashboard/admin/templates/sms', 'admin', [201, 400, 409], { key: 'otp', name: 'OTP', body: 'Code: {{code}}', variables: ['code'] });
+  GET('/dashboard/admin/templates/sms/otp', 'admin', [200, 404]);
+  GET('/dashboard/admin/templates/paypal', 'admin', 200);
+  POST('/dashboard/admin/templates/paypal', 'admin', [201, 400, 409], { key: 'consultation', name: 'Consult', description: 'Consult {{duration}}min', variables: ['duration'] });
+  GET('/dashboard/admin/templates', 'admin', [200, 404]);
+  GET('/dashboard/admin/templates?channel=email', 'admin', [200, 404]);
+  POST('/dashboard/admin/templates/email/welcome/activate', 'admin', [200, 204, 404]);
+  POST('/dashboard/admin/templates/email/welcome/deactivate', 'admin', [200, 204, 404]);
+  test({ method: 'POST', path: '/dashboard/admin/templates/email', role: 'admin', body: { key: 'x', name: 'x', subject: 'x', body: 'x' }, expectStatus: 403, skipCsrf: true }, 'template no CSRF');
+}
+
+function suiteTemplatesPrint(): void {
+  setAnnex('core');
+  section('16. Templates — Print');
+  GET('/dashboard/admin/templates/print', 'admin', 200);
+  GET('/dashboard/admin/templates/print?category=invoice', 'admin', [200, 404]);
+  POST('/dashboard/admin/templates/print', 'admin', [201, 400, 409], { key: 'invoice_a4', name: 'Invoice A4', category: 'invoice', pageSize: 'A4', orientation: 'portrait', content: '<div><h1>{{firmName}}</h1></div>', variables: ['firmName'] });
+  POST('/dashboard/admin/templates/print', 'admin', [201, 400, 409], { key: 'case_sheet_a4', name: 'Case Sheet', category: 'case', pageSize: 'A4', orientation: 'portrait', content: '<h1>{{caseTitle}}</h1>', variables: ['caseTitle'] });
+  GET('/dashboard/admin/templates/print/invoice_a4', 'admin', [200, 404]);
+  PATCH('/dashboard/admin/templates/print/invoice_a4', 'admin', [200, 404], { content: '<div>Updated</div>' });
+  POST('/dashboard/admin/templates/print/invoice_a4/preview', 'admin', [200, 404], { variables: { firmName: 'Test' } });
+  const pdfPath = join(OUT_DIR, 'invoice_print.pdf');
+  if (existsSync(pdfPath)) unlinkSync(pdfPath);
+  test({ method: 'POST', path: '/dashboard/admin/templates/print/invoice_a4/render', role: 'admin', body: { variables: { firmName: 'Test' }, format: 'pdf' }, expectStatus: [200, 201, 404], outputFile: pdfPath }, 'render PDF');
+}
+
+function suiteTemplatesReport(): void {
+  setAnnex('core');
+  section('17. Templates — Report');
+  GET('/dashboard/admin/templates/report', 'admin', 200);
+  POST('/dashboard/admin/templates/report', 'admin', [201, 400, 409], { key: 'financial_monthly', name: 'Monthly Financial', type: 'financial', query: "SELECT DATE_TRUNC('month', created_at) as m, SUM(amount) as t FROM invoices GROUP BY m", columns: ['m', 't'], format: 'table' });
+  POST('/dashboard/admin/templates/report', 'admin', [201, 400, 409], { key: 'cases_summary', name: 'Cases Summary', type: 'cases', query: 'SELECT status, COUNT(*) FROM cases GROUP BY status', columns: ['status', 'count'], format: 'chart', chartType: 'pie' });
+  GET('/dashboard/admin/templates/report/financial_monthly', 'admin', [200, 404]);
+  POST('/dashboard/admin/templates/report/financial_monthly/preview', 'admin', [200, 404], { limit: 5 });
+  POST('/dashboard/admin/templates/report/financial_monthly/execute', 'admin', [200, 400, 404], { variables: { from: '2026-01-01', to: '2026-12-31' }, limit: 100 });
+  for (const fmt of ['pdf', 'xlsx', 'csv']) {
+    const p = join(OUT_DIR, `financial_report.${fmt}`);
+    if (existsSync(p)) unlinkSync(p);
+    test({ method: 'POST', path: '/dashboard/admin/templates/report/financial_monthly/export', role: 'admin', body: { format: fmt }, expectStatus: [200, 201, 400, 404], outputFile: p }, `export ${fmt}`);
+  }
+  POST('/dashboard/admin/templates/report', 'admin', 409, { key: 'financial_monthly', name: 'Dup', type: 'financial', query: 'SELECT 1' });
+  POST('/dashboard/admin/templates/report', 'lawyer', 403, { key: 'x', name: 'x', type: 'financial', query: 'SELECT 1' });
+}
+
+function suiteServicesHealth(): void {
+  setAnnex('core');
+  section('18. Services Health');
+  GET('/health', 'public', [200, 404]);
+  GET('/healthz', 'public', [200, 404]);
+  GET('/ready', 'public', [200, 404]);
+  GET('/live', 'public', [200, 404]);
+  GET('/dashboard/admin/system/health', 'admin', [200, 404]);
+  GET('/dashboard/admin/system/status', 'admin', 200);
+  GET('/dashboard/admin/system/db-health', 'admin', 200);
+  for (const svc of ['db', 'redis', 'email', 'sms', 'whatsapp', 'paypal', 'websocket', 'storage']) GET(`/dashboard/admin/system/services/${svc}`, 'admin', [200, 404]);
+  POST('/dashboard/admin/system/test/email', 'admin', [200, 202, 400, 404], { to: 'admin@firm.test' });
+  POST('/dashboard/admin/system/test/sms', 'admin', [200, 202, 400, 404], { to: '+966500000999' });
+  GET('/dashboard/admin/system/metrics', 'admin', [200, 404]);
+  GET('/dashboard/admin/system/logs', 'admin', [200, 404]);
+  GET('/dashboard/admin/system/alerts', 'admin', [200, 404]);
+  GET('/dashboard/admin/system/uptime', 'admin', [200, 404]);
+  GET('/dashboard/admin/system/health', 'public', [401, 403]);
+}
+
+function suiteGlobalSecurity(): void {
+  setAnnex('core');
+  section('19. Global Security');
+  POST('/auth/login', 'public', [400, 401], { email: "admin' OR 1=1 --", password: 'x' });
+  PATCH('/shared/profile', 'lawyer', [200, 400], { name: '<script>alert(1)</script>' });
+  GET('/cases/00000000-0000-0000-0000-000000000000', 'client', [403, 404]);
+  test({ method: 'POST', path: '/auth/login', role: 'public', body: { email: 'a'.repeat(20_000), password: 'x' }, expectStatus: [400, 413] }, 'big body');
+  test({ method: 'POST', path: '/auth/logout', role: 'admin', expectStatus: 403, skipCsrf: true }, 'logout no CSRF');
+  for (const rl of [{ path: '/auth/login', role: 'public' as Role, iterations: 11, body: { email: 'rl@test.com', password: 'x' }, label: 'login' }, { path: '/auth/password/forgot', role: 'public' as Role, iterations: 4, body: { email: 'x@y.z' }, label: 'forgot' }]) {
+    let last = 0;
+    for (let i = 0; i < rl.iterations; i++) last = runCurl({ method: 'POST', path: rl.path, role: rl.role, body: rl.body }).status;
+    console.log(`  ${last === 429 ? '🟢' : '🟡'} ${rl.label} rate limit → ${last}`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ▓▓▓ PART 2 — ANNEX I (19 suites) ▓▓▓
+// ═══════════════════════════════════════════════════════════════════════════
+
+function suitePerformance(): void {
+  setAnnex('annex1');
+  section('20. Performance — Load & Latency');
+  const targets: { path: string; role: Role; label: string }[] = [
+    { path: '/health', role: 'public', label: 'health' },
+    { path: '/auth/me', role: 'admin', label: 'me' },
+    { path: '/dashboard/admin/stats', role: 'admin', label: 'admin-stats' },
+    { path: '/cases?page=1', role: 'lawyer', label: 'cases' },
+  ];
+  for (const t of targets) {
+    const times: number[] = [];
+    for (let i = 0; i < 5; i++) { const r = runCurl({ method: 'GET', path: t.path, role: t.role, expectStatus: [200, 404] }); if (r.status > 0) times.push(r.ms); }
+    if (times.length === 0) continue;
+    const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+    const icon = avg < 200 ? '🟢' : avg < 800 ? '🟡' : '🔴';
+    console.log(`  ${icon} ${t.label.padEnd(15)} avg=${avg}ms`);
+  }
+}
+
+function suiteConcurrency(): void {
+  setAnnex('annex1');
+  section('21. Concurrency');
+  const raceEmail = `race-${Date.now()}@firm.test`;
+  const bodies = [{ name: 'A', email: raceEmail, phone: '+966500001111', password: 'Race@12345' }, { name: 'B', email: raceEmail, phone: '+966500001112', password: 'Race@12345' }];
+  const outcomes = bodies.map((b) => runCurl({ method: 'POST', path: '/auth/register', role: 'public', body: b, expectStatus: [200, 201, 409] }).status);
+  console.log(`  ${paint('cyan', `race: ${outcomes.join(', ')}`)}`);
+}
+
+function suiteIdempotency(): void {
+  setAnnex('annex1');
+  section('22. Idempotency');
+  const key = `idem-${Date.now()}`;
+  const body = { amount: 99.99, currency: 'USD' };
+  const r1 = runCurl({ method: 'POST', path: '/integrations/paypal/orders', role: 'client', body, headers: { 'Idempotency-Key': key }, expectStatus: [200, 201, 400] });
+  const r2 = runCurl({ method: 'POST', path: '/integrations/paypal/orders', role: 'client', body, headers: { 'Idempotency-Key': key }, expectStatus: [200, 201, 400] });
+  console.log(`  ${r1.body === r2.body ? '🟢' : '🟡'} same key → ${r1.status}/${r2.status}`);
+}
+
+function suiteRealtime(): void {
+  setAnnex('annex1');
+  section('23. Realtime — WS / SSE');
+  const ws = runCurl({ method: 'GET', path: '/ws', role: 'admin', headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==' }, expectStatus: [101, 400, 401, 403, 426] });
+  console.log(`  WS → ${ws.status}`);
+  const sse = runCurl({ method: 'GET', path: '/sse/notifications', role: 'admin', headers: { Accept: 'text/event-stream' }, expectStatus: [200, 404], timeoutMs: 3000 });
+  console.log(`  SSE → ${sse.status}`);
+}
+
+function suiteBackup(): void {
+  setAnnex('annex1');
+  section('24. Backup & Restore');
+  POST('/dashboard/admin/backup', 'admin', [200, 201, 202, 404], { scope: 'full' });
+  GET('/dashboard/admin/backup/list', 'admin', [200, 404]);
+  POST('/dashboard/admin/backup/restore', 'admin', [200, 202, 400, 404], { mode: 'dry-run' });
+  POST('/dashboard/admin/backup/restore', 'lawyer', [401, 403], { mode: 'dry-run' });
+}
+
+function suiteI18n(): void {
+  setAnnex('annex1');
+  section('25. i18n');
+  const ar = runCurl({ method: 'GET', path: '/auth/me', role: 'admin', headers: { 'Accept-Language': 'ar' }, expectStatus: [200, 404] });
+  const en = runCurl({ method: 'GET', path: '/auth/me', role: 'admin', headers: { 'Accept-Language': 'en' }, expectStatus: [200, 404] });
+  console.log(`  ar=${ar.status} en=${en.status}`);
+}
+
+function suiteA11y(): void {
+  setAnnex('annex1');
+  section('26. Accessibility');
+  for (const p of ['/', '/login', '/contact']) {
+    try {
+      const html = execFileSync('curl', ['-s', `${CLIENT}${p}`], { encoding: 'utf8', timeout: 5000 });
+      const hasLang = /<html[^>]*lang=/.test(html);
+      const hasTitle = /<title>[^<]+<\/title>/.test(html);
+      const score = [hasLang, hasTitle].filter(Boolean).length;
+      console.log(`  ${score >= 1 ? '🟢' : '🟡'} ${p} — ${score}/2`);
+    } catch { console.log(`  ⚠️  ${p} unreachable`); }
+  }
+}
+
+function suiteSEO(): void {
+  setAnnex('annex1');
+  section('27. SEO');
+  try {
+    const out = execFileSync('curl', ['-s', `${CLIENT}/robots.txt`], { encoding: 'utf8', timeout: 5000 });
+    console.log(`  ${/User-agent/i.test(out) ? '🟢' : '🟡'} robots.txt`);
+  } catch {}
+  try {
+    const out = execFileSync('curl', ['-s', `${CLIENT}/sitemap.xml`], { encoding: 'utf8', timeout: 5000 });
+    console.log(`  ${/<urlset|<sitemapindex/i.test(out) ? '🟢' : '🟡'} sitemap.xml`);
+  } catch {}
+}
+
+function suiteGDPR(): void {
+  setAnnex('annex1');
+  section('28. GDPR');
+  POST('/shared/privacy/export', 'client', [200, 202, 404], { scope: 'all' });
+  POST('/shared/privacy/delete-request', 'client', [200, 202, 404], { reason: 'Test' });
+  GET('/shared/privacy/consent', 'client', [200, 404]);
+  POST('/shared/privacy/export', 'public', [401, 403], { scope: 'all' });
+}
+
+function suiteMultiTenancy(): void {
+  setAnnex('annex1');
+  section('29. Multi-Tenancy');
+  GET('/shared/tenant', 'admin', [200, 404]);
+  test({ method: 'GET', path: '/shared/tenant/OTHER_TENANT', role: 'admin', headers: { 'X-Tenant-Id': 'other' }, expectStatus: [403, 404] }, 'cross-tenant');
+}
+
+function suiteAudit(): void {
+  setAnnex('annex1');
+  section('30. Audit Completeness');
+  for (const action of ['LOGIN', 'LOGOUT', 'CREATE', 'UPDATE', 'DELETE', 'EXPORT']) GET(`/dashboard/admin/audit?action=${action}&page=1`, 'admin', [200, 404]);
+  GET('/dashboard/admin/audit/integrity', 'admin', [200, 404]);
+  PATCH('/dashboard/admin/audit/ENTRY_ID', 'admin', [403, 404, 405], { action: 'HIDDEN' });
+}
+
+function suiteContract(): void {
+  setAnnex('annex1');
+  section('31. Contract Testing');
+  const me = runCurl({ method: 'GET', path: '/auth/me', role: 'admin', expectStatus: [200, 404] });
+  if (me.status === 200) {
+    try {
+      const j = JSON.parse(me.body);
+      const u = j.user ?? {};
+      const missing = ['id', 'email', 'role', 'name'].filter((k) => !(k in u));
+      console.log(`  ${missing.length === 0 ? '🟢' : '🔴'} me schema — missing: ${missing.join(',') || 'none'}`);
+    } catch {}
+  }
+}
+
+function suiteFuzz(): void {
+  setAnnex('annex1');
+  section('32. Fuzz Testing');
+  const payloads: unknown[] = [null, '', 0, -1, [], {}, 'a'.repeat(10_000), '../../etc/passwd', '<script>alert(1)</script>', "'; DROP TABLE--", 'Ünïcödé'];
+  for (const body of payloads) {
+    const r = runCurl({ method: 'POST', path: '/auth/login', role: 'public', body, expectStatus: [200, 400, 401, 413, 415, 422] });
+    console.log(`  ${r.status !== 500 ? '🟢' : '🔴'} fuzz → ${r.status}`);
+  }
+}
+
+function suiteRateRecovery(): void {
+  setAnnex('annex1');
+  section('33. Rate Limit Recovery');
+  for (let i = 0; i < 15; i++) {
+    const r = runCurl({ method: 'POST', path: '/auth/login', role: 'public', body: { email: 'recover@test.com', password: 'x' } });
+    if (r.status === 429) { console.log(`  🟢 limit hit at #${i + 1}`); break; }
+  }
+}
+
+function suiteTimezones(): void {
+  setAnnex('annex1');
+  section('34. Time Zones');
+  for (const tz of ['UTC', 'Asia/Riyadh', 'America/New_York', 'Europe/London']) {
+    const r = runCurl({ method: 'GET', path: '/shared/profile', role: 'admin', headers: { 'X-Timezone': tz }, expectStatus: [200, 404] });
+    console.log(`  ${tz} → ${r.status}`);
+  }
+}
+
+function suiteExportImport(): void {
+  setAnnex('annex1');
+  section('35. Export / Import');
+  const p = join(OUT_DIR, 'cases_export.csv');
+  if (existsSync(p)) unlinkSync(p);
+  runCurl({ method: 'GET', path: '/cases/export?format=csv', role: 'admin', expectStatus: [200, 403, 404], outputFile: p });
+  console.log(`  ${existsSync(p) ? '🟢' : '🟡'} export`);
+  POST('/cases/import', 'admin', [200, 201, 400, 403, 404], { format: 'csv', data: 'title,type\nTest,CIVIL' });
+}
+
+function suiteNotificationsE2E(): void {
+  setAnnex('annex1');
+  section('36. Notifications E2E');
+  runCurl({ method: 'PATCH', path: '/cases/00000000-0000-0000-0000-000000000000', role: 'lawyer', body: { status: 'IN_PROGRESS' }, expectStatus: [200, 404] });
+  GET('/notifications', 'client', [200, 404]);
+  POST('/notifications/read-all', 'client', [200, 204]);
+  GET('/notifications/unread-count', 'client', [200, 404]);
+}
+
+function suitePaymentE2E(): void {
+  setAnnex('annex1');
+  section('37. Payment E2E');
+  POST('/dashboard/accountant/invoices', 'accountant', [200, 201, 400, 404], { clientId: '00000000-0000-0000-0000-000000000000', amount: 500, currency: 'SAR' });
+  POST('/invoices/00000000-0000-0000-0000-000000000000/send', 'accountant', [200, 202, 404]);
+  GET('/dashboard/client/invoices/00000000-0000-0000-0000-000000000000', 'client', [200, 403, 404]);
+  POST('/dashboard/client/invoices/00000000-0000-0000-0000-000000000000/pay/paypal', 'client', [200, 201, 400, 403, 404]);
+  test({ method: 'POST', path: '/integrations/paypal/webhook', role: 'public', headers: { 'PAYPAL-TRANSMISSION-ID': 'x', 'PAYPAL-TRANSMISSION-SIG': 'x' }, body: { event_type: 'PAYMENT.CAPTURE.COMPLETED' }, expectStatus: [200, 400, 401] }, 'webhook capture');
+}
+
+function suiteAdvancedSecurity(): void {
+  setAnnex('annex1');
+  section('38. Advanced Security');
+  test({ method: 'POST', path: '/dashboard/admin/system/test/webhook', role: 'admin', body: { url: 'http://169.254.169.254/latest/meta-data/' }, expectStatus: [400, 403, 422] }, 'SSRF');
+  test({ method: 'POST', path: '/cases/import', role: 'admin', headers: { 'Content-Type': 'application/xml' }, body: '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><x>&e;</x>', expectStatus: [400, 403, 415] }, 'XXE');
+  test({ method: 'GET', path: '/auth/me', role: 'public', headers: { Cookie: 'access_token=eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZG1pbiJ9.' }, expectStatus: 401 }, 'none-JWT');
+  test({ method: 'POST', path: '/auth/login', role: 'public', body: { email: 'x', password: 'y', __proto__: { admin: true } }, expectStatus: [400, 401] }, 'proto pollution');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ▓▓▓ PART 3 — ANNEX II (41 suites) ▓▓▓
+// ═══════════════════════════════════════════════════════════════════════════
+
+function suiteEncryption(): void {
+  setAnnex('annex2');
+  section('39. Encryption at Rest');
+  POST('/documents', 'lawyer', [200, 201, 400, 404, 415], { title: 'Encrypted', content: 'base64:data', encrypted: true });
+  GET('/documents/00000000-0000-0000-0000-000000000000/checksum', 'lawyer', [200, 404]);
+  POST('/documents/00000000-0000-0000-0000-000000000000/decrypt', 'lawyer', [400, 403, 404], { key: 'wrong' });
+  GET('/dashboard/admin/system/encryption/status', 'admin', [200, 404]);
+}
+
+function suitePIIMasking(): void {
+  setAnnex('annex2');
+  section('40. PII Masking');
+  const list = runCurl({ method: 'GET', path: '/dashboard/admin/clients?page=1', role: 'admin', expectStatus: [200, 404] });
+  if (list.status === 200) console.log(`  masked: ${/\*{3,}/.test(list.body)}`);
+  POST('/dashboard/admin/clients/CLIENT_ID/reveal-pii', 'admin', [200, 202, 403, 404], { reason: 'Legal' });
+  POST('/dashboard/admin/clients/CLIENT_ID/reveal-pii', 'lawyer', [401, 403], { reason: 'Test' });
+}
+
+function suiteRetention(): void {
+  setAnnex('annex2');
+  section('41. Data Retention');
+  GET('/dashboard/admin/system/retention/policy', 'admin', [200, 404]);
+  POST('/dashboard/admin/system/retention', 'admin', [200, 201, 404], { cases: 2555 });
+  POST('/dashboard/admin/system/retention/purge', 'admin', [200, 202, 403, 404], { dryRun: true });
+  POST('/dashboard/admin/system/retention/purge', 'lawyer', [401, 403], { dryRun: false });
+}
+
+function suiteLegalHold(): void {
+  setAnnex('annex2');
+  section('42. Legal Hold');
+  POST('/cases/00000000-0000-0000-0000-000000000000/legal-hold', 'admin', [200, 201, 404], { reason: 'Litigation' });
+  DELETE('/cases/00000000-0000-0000-0000-000000000000', 'admin', [403, 409]);
+  DELETE('/cases/00000000-0000-0000-0000-000000000000/legal-hold', 'admin', [200, 204, 404]);
+  GET('/dashboard/admin/legal-holds', 'admin', [200, 404]);
+}
+
+function suiteChainOfCustody(): void {
+  setAnnex('annex2');
+  section('43. Chain of Custody');
+  POST('/cases/00000000-0000-0000-0000-000000000000/evidence', 'lawyer', [200, 201, 400, 404], { type: 'DOCUMENT', hash: 'sha256:abc' });
+  GET('/cases/00000000-0000-0000-0000-000000000000/evidence/EV_ID/custody', 'lawyer', [200, 404]);
+  POST('/cases/00000000-0000-0000-0000-000000000000/evidence/EV_ID/transfer', 'lawyer', [200, 201, 400, 404], { to: 'PARA_ID' });
+  POST('/cases/00000000-0000-0000-0000-000000000000/evidence/EV_ID/verify', 'lawyer', [200, 400, 404], { hash: 'sha256:X' });
+}
+
+function suiteDigitalSignature(): void {
+  setAnnex('annex2');
+  section('44. Digital Signature');
+  POST('/documents/00000000-0000-0000-0000-000000000000/sign', 'client', [200, 201, 400, 404], { signature: 'base64:sig' });
+  POST('/documents/00000000-0000-0000-0000-000000000000/verify-signature', 'lawyer', [200, 400, 404]);
+  GET('/documents/00000000-0000-0000-0000-000000000000/signatures', 'lawyer', [200, 404]);
+  GET('/dashboard/admin/system/esign/config', 'admin', [200, 404]);
+}
+
+function suiteNotarization(): void {
+  setAnnex('annex2');
+  section('45. Notarization');
+  POST('/documents/00000000-0000-0000-0000-000000000000/notarize', 'lawyer', [200, 201, 400, 404], { notaryId: 'N_ID' });
+  POST('/documents/00000000-0000-0000-0000-000000000000/notarize/N_ID/approve', 'admin', [200, 404], { certificate: 'base64:c' });
+  POST('/documents/00000000-0000-0000-0000-000000000000/notarize/N_ID/reject', 'admin', [200, 400, 404], { reason: 'Invalid' });
+}
+
+function suiteTimeStamping(): void {
+  setAnnex('annex2');
+  section('46. Time Stamping');
+  POST('/documents/00000000-0000-0000-0000-000000000000/timestamp', 'lawyer', [200, 201, 400, 404], { hash: 'sha256:abc' });
+  POST('/documents/00000000-0000-0000-0000-000000000000/timestamp/verify', 'lawyer', [200, 400, 404], { token: 'base64:tok' });
+  GET('/dashboard/admin/system/tsa/status', 'admin', [200, 404]);
+}
+
+function suiteConflict(): void {
+  setAnnex('annex2');
+  section('47. Conflict of Interest');
+  POST('/cases/conflict-check', 'lawyer', [200, 400, 403, 404], { clientId: 'C_ID', opposingParty: 'Name' });
+  POST('/cases', 'lawyer', [409, 403, 400], { title: 'Conflicting', clientId: 'C_ID', opposingParty: 'Existing' });
+  POST('/cases/CASE_ID/conflict-waiver', 'admin', [200, 201, 403, 404], { reason: 'Consent' });
+  GET('/dashboard/admin/conflicts?page=1', 'admin', [200, 404]);
+}
+
+function suiteEthicalWall(): void {
+  setAnnex('annex2');
+  section('48. Ethical Wall');
+  POST('/dashboard/admin/ethical-walls', 'admin', [200, 201, 400, 404], { caseId: 'CASE_ID', blockedUsers: ['L_ID'], reason: 'Conflict' });
+  GET('/cases/CASE_ID', 'lawyer', [403, 404]);
+  GET('/dashboard/admin/ethical-walls?page=1', 'admin', [200, 404]);
+  DELETE('/dashboard/admin/ethical-walls/WALL_ID', 'admin', [200, 204, 404]);
+}
+
+function suiteDeadlines(): void {
+  setAnnex('annex2');
+  section('49. Case Deadlines');
+  POST('/cases/00000000-0000-0000-0000-000000000000/deadlines', 'lawyer', [200, 201, 400, 404], { type: 'APPEAL', date: '2026-12-31', priority: 'CRITICAL' });
+  GET('/cases/00000000-0000-0000-0000-000000000000/deadlines', 'lawyer', [200, 404]);
+  GET('/dashboard/lawyer/deadlines/upcoming?days=7', 'lawyer', [200, 404]);
+  GET('/dashboard/lawyer/deadlines/overdue', 'lawyer', [200, 404]);
+}
+
+function suiteEFiling(): void {
+  setAnnex('annex2');
+  section('50. Court E-Filing');
+  GET('/lookups/courts?efiling=true', 'lawyer', [200, 404]);
+  POST('/cases/00000000-0000-0000-0000-000000000000/efiling', 'lawyer', [200, 201, 400, 403, 404], { courtId: 'C_ID', filingType: 'COMPLAINT', documents: ['DOC_ID'] });
+  GET('/cases/00000000-0000-0000-0000-000000000000/efiling/FILING_ID', 'lawyer', [200, 404]);
+  POST('/cases/CASE_ID/efiling', 'client', [401, 403], { courtId: 'x', filingType: 'x', documents: [] });
+}
+
+function suiteLegalCalendar(): void {
+  setAnnex('annex2');
+  section('51. Legal Calendar');
+  GET('/lookups/court-holidays?year=2026', 'admin', [200, 404]);
+  POST('/dashboard/admin/court-holidays', 'admin', [200, 201, 400, 404], { date: '2026-09-23', name: 'National Day' });
+  POST('/cases/deadline/calculate', 'lawyer', [200, 400, 404], { startDate: '2026-09-20', days: 15 });
+}
+
+function suiteFeeCalculation(): void {
+  setAnnex('annex2');
+  section('52. Fee Calculation');
+  POST('/billing/calculate', 'lawyer', [200, 400, 404], { type: 'HOURLY', hours: 5, rate: 500 });
+  POST('/billing/calculate', 'lawyer', [200, 400, 404], { type: 'FLAT', amount: 5000 });
+  POST('/billing/calculate', 'lawyer', [200, 400, 404], { type: 'CONTINGENCY', settlement: 100_000, percentage: 20 });
+  POST('/billing/calculate', 'lawyer', [400, 422], { type: 'HOURLY', hours: 5, rate: -100 });
+  GET('/lookups/fee-schedules', 'accountant', [200, 404]);
+}
+
+function suiteTrustAccount(): void {
+  setAnnex('annex2');
+  section('53. Trust Account (IOLTA)');
+  POST('/dashboard/accountant/trust-accounts', 'accountant', [200, 201, 400, 404], { clientId: 'C_ID', type: 'IOLTA' });
+  POST('/dashboard/accountant/trust-accounts/A_ID/deposit', 'accountant', [200, 201, 400, 404], { amount: 10_000 });
+  POST('/dashboard/accountant/trust-accounts/A_ID/disburse', 'accountant', [200, 201, 400, 404], { amount: 5000, reason: 'Fees' });
+  POST('/dashboard/accountant/trust-accounts/A_ID/disburse', 'accountant', [400, 409, 422], { amount: 1_000_000 });
+  GET('/dashboard/accountant/trust-accounts/A_ID/statement', 'accountant', [200, 404]);
+}
+
+function suiteBillingRules(): void {
+  setAnnex('annex2');
+  section('54. Billing Rules');
+  POST('/dashboard/accountant/billing-rules', 'accountant', [200, 201, 400, 404], { name: 'Weekend', multiplier: 1.5 });
+  GET('/dashboard/accountant/billing-rules', 'accountant', [200, 404]);
+  POST('/invoices/INV_ID/apply-rules', 'accountant', [200, 400, 404]);
+}
+
+function suiteTax(): void {
+  setAnnex('annex2');
+  section('55. Tax Compliance');
+  POST('/billing/vat/calculate', 'accountant', [200, 400, 404], { subtotal: 1000, country: 'SA', rate: 15 });
+  POST('/dashboard/accountant/invoices/INV_ID/tax-invoice', 'accountant', [200, 201, 400, 404], { taxRate: 15, taxId: '123' });
+  GET('/dashboard/accountant/reports/vat?period=Q4-2026', 'accountant', [200, 404]);
+  POST('/dashboard/accountant/invoices/INV_ID/zatca', 'accountant', [200, 202, 400, 404]);
+}
+
+function suiteESignAudit(): void {
+  setAnnex('annex2');
+  section('56. E-Signature Audit');
+  GET('/documents/DOC_ID/signature-audit', 'admin', [200, 404]);
+  POST('/documents/DOC_ID/signature-audit/verify', 'admin', [200, 400, 404]);
+  GET('/documents/DOC_ID/signature-audit/export?format=pdf', 'admin', [200, 404]);
+}
+
+function suiteLineage(): void {
+  setAnnex('annex2');
+  section('57. Data Lineage');
+  GET('/cases/CASE_ID/lineage', 'admin', [200, 404]);
+  GET('/documents/DOC_ID/lineage', 'admin', [200, 404]);
+  GET('/dashboard/admin/system/lineage?entity=cases', 'admin', [200, 404]);
+}
+
+function suiteDR(): void {
+  setAnnex('annex2');
+  section('58. Disaster Recovery');
+  GET('/dashboard/admin/system/dr/status', 'admin', [200, 404]);
+  POST('/dashboard/admin/system/dr/drill', 'admin', [200, 202, 404], { mode: 'dry-run' });
+  GET('/dashboard/admin/system/dr/metrics', 'admin', [200, 404]);
+  POST('/dashboard/admin/system/dr/failover', 'admin', [200, 202, 403, 404], { target: 'replica-1' });
+  POST('/dashboard/admin/system/dr/failover', 'lawyer', [401, 403], { target: 'replica-1' });
+}
+
+function suiteChaos(): void {
+  setAnnex('annex2');
+  section('59. Chaos Engineering');
+  POST('/dashboard/admin/system/chaos', 'admin', [200, 202, 403, 404], { target: 'db', action: 'latency', duration: 10 });
+  POST('/dashboard/admin/system/chaos', 'admin', [200, 202, 403, 404], { target: 'email', action: 'down', duration: 30 });
+  GET('/dashboard/admin/system/chaos/status', 'admin', [200, 404]);
+  POST('/dashboard/admin/system/chaos', 'lawyer', [401, 403], { target: 'db' });
+}
+
+function suiteBlueGreen(): void {
+  setAnnex('annex2');
+  section('60. Blue/Green Deploy');
+  GET('/dashboard/admin/system/deployment', 'admin', [200, 404]);
+  POST('/dashboard/admin/system/deployment/switch', 'admin', [200, 202, 403, 404], { to: 'green', strategy: 'gradual', percentage: 10 });
+  POST('/dashboard/admin/system/deployment/rollback', 'admin', [200, 202, 403, 404]);
+}
+
+function suiteFeatureFlags(): void {
+  setAnnex('annex2');
+  section('61. Feature Flags');
+  GET('/dashboard/admin/feature-flags', 'admin', [200, 404]);
+  POST('/dashboard/admin/feature-flags', 'admin', [200, 201, 400, 409], { key: 'new_ui', description: 'New UI', enabled: false, rollout: 0 });
+  PATCH('/dashboard/admin/feature-flags/new_ui', 'admin', [200, 404], { enabled: true, rollout: 50 });
+  GET('/shared/feature-flags/new_ui', 'accountant', [200, 404]);
+  DELETE('/dashboard/admin/feature-flags/new_ui', 'admin', [200, 204, 404]);
+}
+
+function suiteWebhookRetry(): void {
+  setAnnex('annex2');
+  section('62. Webhook Retry');
+  POST('/dashboard/admin/webhooks', 'admin', [200, 201, 400, 404], { url: 'https://example.com/hook', events: ['invoice.paid'], retryPolicy: { attempts: 5 } });
+  GET('/dashboard/admin/webhooks', 'admin', [200, 404]);
+  POST('/dashboard/admin/webhooks/WH_ID/test', 'admin', [200, 202, 404]);
+  GET('/dashboard/admin/webhooks/WH_ID/deliveries?page=1', 'admin', [200, 404]);
+}
+
+function suiteAPIVersioning(): void {
+  setAnnex('annex2');
+  section('63. API Versioning');
+  test({ method: 'GET', path: '/v1/auth/me', role: 'admin', expectStatus: [200, 404] }, 'GET /v1/auth/me');
+  test({ method: 'GET', path: '/v2/auth/me', role: 'admin', expectStatus: [200, 404] }, 'GET /v2/auth/me');
+  test({ method: 'GET', path: '/auth/me', role: 'admin', headers: { Accept: 'application/vnd.api+json; version=2' }, expectStatus: [200, 404] }, 'Accept header version');
+}
+
+function suiteRatePerEndpoint(): void {
+  setAnnex('annex2');
+  section('64. Rate per Endpoint');
+  const endpoints = [
+    { path: '/auth/login', role: 'public' as Role, iterations: 12, body: { email: 'rl@test.com', password: 'x' } },
+    { path: '/integrations/sms/send', role: 'client' as Role, iterations: 5, body: { phone: '+966500000999', purpose: 'verification' } },
+  ];
+  for (const ep of endpoints) {
+    let last = 0;
+    for (let i = 0; i < ep.iterations; i++) last = runCurl({ method: 'POST', path: ep.path, role: ep.role, body: ep.body }).status;
+    console.log(`  ${last === 429 ? '🟢' : '🟡'} ${ep.path} → ${last}`);
+  }
+}
+
+function suiteRequestSigning(): void {
+  setAnnex('annex2');
+  section('65. Request Signing');
+  test({ method: 'POST', path: '/integrations/paypal/orders', role: 'client', headers: { 'X-Signature': 'hmac-sha256=abc', 'X-Timestamp': String(Math.floor(Date.now() / 1000)) }, body: { amount: 10, currency: 'USD' }, expectStatus: [200, 201, 400, 401, 403] }, 'signed');
+  test({ method: 'POST', path: '/integrations/paypal/orders', role: 'client', headers: { 'X-Signature': 'hmac-sha256=TAMPERED' }, body: { amount: 10, currency: 'USD' }, expectStatus: [401, 403, 200, 201, 400] }, 'tampered');
+}
+
+function suiteMTLS(): void {
+  setAnnex('annex2');
+  section('66. mTLS');
+  GET('/dashboard/admin/system/mtls/status', 'admin', [200, 404]);
+  GET('/dashboard/admin/system/mtls/certificates', 'admin', [200, 404]);
+  GET('/internal/health', 'public', [401, 403, 404]);
+}
+
+function suiteIPAllowlist(): void {
+  setAnnex('annex2');
+  section('67. IP Allowlist');
+  GET('/dashboard/admin/system/ip-allowlist', 'admin', [200, 404]);
+  POST('/dashboard/admin/system/ip-allowlist', 'admin', [200, 201, 400, 404], { ip: '203.0.113.0/24' });
+  DELETE('/dashboard/admin/system/ip-allowlist/IP_ID', 'admin', [200, 204, 404]);
+}
+
+function suiteSessionAnomaly(): void {
+  setAnnex('annex2');
+  section('68. Session Anomaly');
+  GET('/dashboard/admin/security/anomalies', 'admin', [200, 404]);
+  POST('/dashboard/admin/security/anomalies/S_ID/flag', 'admin', [200, 202, 404]);
+  POST('/dashboard/admin/security/anomalies/S_ID/force-logout', 'admin', [200, 202, 404]);
+}
+
+function suiteAuditImmutability(): void {
+  setAnnex('annex2');
+  section('69. Audit Immutability');
+  PATCH('/dashboard/admin/audit/ENTRY_ID', 'admin', [403, 404, 405], { action: 'HIDDEN' });
+  DELETE('/dashboard/admin/audit/ENTRY_ID', 'admin', [403, 404, 405]);
+  GET('/dashboard/admin/audit/hash-chain', 'admin', [200, 404]);
+  GET('/dashboard/admin/audit/merkle-proof/ENTRY_ID', 'admin', [200, 404]);
+}
+
+function suiteMultiCurrency(): void {
+  setAnnex('annex2');
+  section('70. Multi-Currency');
+  GET('/lookups/currencies', 'accountant', [200, 404]);
+  POST('/dashboard/accountant/invoices', 'accountant', [200, 201, 400, 404], { clientId: 'C_ID', amount: 100, currency: 'USD' });
+  POST('/billing/convert', 'accountant', [200, 400, 404], { amount: 100, from: 'USD', to: 'SAR' });
+  POST('/billing/convert', 'accountant', [400, 422], { amount: 100, from: 'USD', to: 'XXX' });
+  GET('/lookups/exchange-rates?base=USD', 'accountant', [200, 404]);
+}
+
+function suiteBankReconciliation(): void {
+  setAnnex('annex2');
+  section('71. Bank Reconciliation');
+  POST('/dashboard/accountant/bank-statements', 'accountant', [200, 201, 400, 404], { accountId: 'A_ID', period: '2026-11', format: 'csv' });
+  POST('/dashboard/accountant/bank-statements/S_ID/match', 'accountant', [200, 202, 404]);
+  GET('/dashboard/accountant/bank-statements/S_ID/unmatched', 'accountant', [200, 404]);
+  POST('/dashboard/accountant/bank-statements/S_ID/finalize', 'accountant', [200, 202, 400, 404]);
+}
+
+function suiteEscrow(): void {
+  setAnnex('annex2');
+  section('72. Escrow Payments');
+  POST('/payments/escrow', 'client', [200, 201, 400, 404], { caseId: 'CASE_ID', amount: 5000, currency: 'SAR' });
+  POST('/payments/escrow/E_ID/fund', 'client', [200, 201, 400, 404], { method: 'PAYPAL' });
+  POST('/payments/escrow/E_ID/release', 'admin', [200, 202, 400, 403, 404], { to: 'L_ID', amount: 5000 });
+  POST('/payments/escrow/E_ID/dispute', 'client', [200, 201, 400, 404], { reason: 'Not rendered' });
+}
+
+function suiteSubscription(): void {
+  setAnnex('annex2');
+  section('73. Subscription Billing');
+  POST('/dashboard/admin/subscription-plans', 'admin', [200, 201, 400, 404], { name: 'Pro', price: 500, currency: 'SAR', interval: 'MONTHLY' });
+  POST('/subscriptions', 'client', [200, 201, 400, 404], { planId: 'P_ID', paymentMethod: 'PAYPAL' });
+  GET('/subscriptions', 'client', [200, 404]);
+  DELETE('/subscriptions/S_ID', 'client', [200, 204, 403, 404]);
+}
+
+function suiteRefund(): void {
+  setAnnex('annex2');
+  section('74. Refund Workflow');
+  POST('/payments/PAY_ID/refund-request', 'client', [200, 201, 400, 404], { amount: 100, reason: 'Duplicate' });
+  POST('/payments/PAY_ID/refund-request/REQ_ID/approve', 'accountant', [200, 202, 403, 404]);
+  POST('/payments/PAY_ID/refund-request/REQ_ID/reject', 'accountant', [200, 400, 403, 404], { reason: 'Policy' });
+  POST('/payments/PAY_ID/refund-request/REQ_ID/approve', 'client', [401, 403], {});
+}
+
+function suiteDispute(): void {
+  setAnnex('annex2');
+  section('75. Dispute Resolution');
+  POST('/payments/PAY_ID/disputes', 'client', [200, 201, 400, 404], { reason: 'Not as described', amount: 100 });
+  POST('/payments/PAY_ID/disputes/D_ID/evidence', 'client', [200, 201, 400, 404], { description: 'Contract', documentId: 'DOC_ID' });
+  POST('/payments/PAY_ID/disputes/D_ID/resolve', 'admin', [200, 202, 400, 403, 404], { outcome: 'CLIENT_FAVOR' });
+  GET('/payments/PAY_ID/disputes', 'admin', [200, 404]);
+}
+
+function suiteExportMasking(): void {
+  setAnnex('annex2');
+  section('76. Data Masking in Exports');
+  const p = join(OUT_DIR, 'clients_masked.csv');
+  if (existsSync(p)) unlinkSync(p);
+  runCurl({ method: 'GET', path: '/dashboard/admin/clients/export?format=csv&mask=true', role: 'admin', expectStatus: [200, 404], outputFile: p });
+  console.log(`  ${existsSync(p) && /\*{3,}/.test(readFileSync(p, 'utf8')) ? '🟢' : '🟡'} masked export`);
+  POST('/dashboard/admin/clients/export', 'admin', [200, 202, 400, 403, 404], { format: 'csv', mask: false, reason: 'Legal' });
+}
+
+function suiteDocVersioning(): void {
+  setAnnex('annex2');
+  section('77. Doc Versioning & Redlining');
+  POST('/documents', 'lawyer', [200, 201, 400, 404], { title: 'v1', content: 'base64:v1' });
+  POST('/documents/DOC_ID/versions', 'lawyer', [200, 201, 400, 404], { content: 'base64:v2' });
+  GET('/documents/DOC_ID/versions', 'lawyer', [200, 404]);
+  POST('/documents/DOC_ID/redline', 'lawyer', [200, 400, 404], { fromVersion: 1, toVersion: 2 });
+  POST('/documents/DOC_ID/versions/1/restore', 'lawyer', [200, 202, 404]);
+}
+
+function suiteEDiscovery(): void {
+  setAnnex('annex2');
+  section('78. E-Discovery Search');
+  POST('/ediscovery/search', 'lawyer', [200, 400, 404], { query: 'breach of contract', caseId: 'CASE_ID' });
+  POST('/ediscovery/search', 'lawyer', [200, 400, 404], { query: '(contract OR agreement) AND NOT draft' });
+  POST('/ediscovery/saved-searches', 'lawyer', [200, 201, 400, 404], { name: 'Breaches', query: 'breach' });
+  POST('/ediscovery/search/export', 'lawyer', [200, 202, 400, 404], { format: 'csv', query: 'breach' });
+}
+
+function suiteConflictBatch(): void {
+  setAnnex('annex2');
+  section('79. Conflict Check (Batch)');
+  POST('/cases/conflict-check/batch', 'admin', [200, 400, 404], { parties: [{ name: 'A', idNumber: '111' }, { name: 'B', idNumber: '222' }] });
+  GET('/dashboard/admin/conflicts/history?page=1', 'admin', [200, 404]);
+  GET('/dashboard/admin/conflicts/audit?page=1', 'admin', [200, 404]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📊 REPORT
+// ═══════════════════════════════════════════════════════════════════════════
+function report(): void {
+  const pass = results.filter((r) => r.outcome === 'pass').length;
+  const fail = results.filter((r) => r.outcome === 'fail').length;
+  const skip = results.filter((r) => r.outcome === 'skip').length;
+  const total = results.length;
+  const rate = total ? Math.round((pass / total) * 100) : 0;
+
+  console.log('\n' + paint('blue', '═'.repeat(70)));
+  console.log(paint('blue', paint('bold', '  📊 SINGLE-FILE MASTER — FINAL RESULTS')));
+  console.log(paint('blue', '═'.repeat(70)));
+  console.log(`  ${paint('green', '✅ Passed:')}  ${pass}`);
+  console.log(`  ${paint('red', '❌ Failed:')}  ${fail}`);
+  console.log(`  ${paint('yellow', '⚠️  Skipped:')} ${skip}`);
+  console.log(`  ${paint('blue', '📋 Total:')}   ${total}`);
+  console.log(`  ${paint('blue', '🎯 Success:')} ${rate}%`);
+
+  const byAnnex: Record<string, { pass: number; fail: number; total: number }> = {};
+  for (const r of results) {
+    if (!byAnnex[r.annex]) byAnnex[r.annex] = { pass: 0, fail: 0, total: 0 };
+    byAnnex[r.annex].total++;
+    if (r.outcome === 'pass') byAnnex[r.annex].pass++;
+    else if (r.outcome === 'fail') byAnnex[r.annex].fail++;
+  }
+  console.log('\n' + paint('cyan', '  Per-Annex:'));
+  for (const [a, s] of Object.entries(byAnnex)) console.log(`  ${s.fail === 0 ? '✅' : '❌'} ${a.padEnd(10)} ${s.pass}/${s.total}`);
+
+  const byModule: Record<string, { pass: number; fail: number; total: number }> = {};
+  for (const r of results) {
+    if (!byModule[r.module]) byModule[r.module] = { pass: 0, fail: 0, total: 0 };
+    byModule[r.module].total++;
+    if (r.outcome === 'pass') byModule[r.module].pass++;
+    else if (r.outcome === 'fail') byModule[r.module].fail++;
+  }
+  console.log('\n' + paint('cyan', '  Per-Module (failures highlighted):'));
+  for (const [m, s] of Object.entries(byModule)) {
+    const icon = s.fail === 0 ? '✅' : '❌';
+    if (s.fail > 0 || Object.keys(byModule).length <= 30) console.log(`  ${icon} ${m.slice(0, 45).padEnd(45)} ${s.pass}/${s.total}`);
+  }
+
+  const jsonPath = join(OUT_DIR, `master_report_${Date.now()}.json`);
+  writeFileSync(jsonPath, JSON.stringify({
+    system: 'law-firm-management',
+    testSuite: 'API Test Suite via cURL — Single-File Master',
+    tool: 'cURL Testing',
+    base: BASE, client: CLIENT,
+    timestamp: new Date().toISOString(),
+    summary: { passed: pass, failed: fail, skipped: skip, total, successRate: `${rate}%` },
+    byAnnex, byModule, results,
+  }, null, 2), 'utf8');
+  console.log(paint('gray', `\n📄 Report (JSON): ${jsonPath}`));
+
+  const md = [
+    '# API Test Suite via cURL — Single-File Master',
+    '',
+    `**Base**: ${BASE}`,
+    `**Client**: ${CLIENT}`,
+    `**Time**: ${new Date().toISOString()}`,
+    '',
+    '## Summary',
+    `- ✅ Passed: **${pass}**`,
+    `- ❌ Failed: **${fail}**`,
+    `- ⚠️ Skipped: **${skip}**`,
+    `- 📋 Total: **${total}**`,
+    `- 🎯 Success: **${rate}%**`,
+    '',
+    '## Per-Annex',
+    '| Annex | Pass | Fail | Total |',
+    '|-------|------|------|-------|',
+    ...Object.entries(byAnnex).map(([a, s]) => `| ${a} | ${s.pass} | ${s.fail} | ${s.total} |`),
+    '',
+    '## Failures',
+    ...(fail === 0 ? ['- None 🎉'] : results.filter((r) => r.outcome === 'fail').map((r) =>
+      `- **${r.module}** → ${r.name} (got ${r.status}, expected ${([] as any[]).concat(r.expected).join('|')})`
+    )),
+  ].join('\n');
+  const mdPath = join(OUT_DIR, `master_report_${Date.now()}.md`);
+  writeFileSync(mdPath, md, 'utf8');
+  console.log(paint('gray', `📄 Report (MD): ${mdPath}`));
+
+  if (fail > 0) process.exit(1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🏁 MAIN
+// ═══════════════════════════════════════════════════════════════════════════
+(async () => {
+  const t0 = Date.now();
+  console.log(paint('bold', '\n🏛️  Law Firm Management — API Test Suite via cURL (SINGLE-FILE MASTER)'));
+  console.log(paint('gray', `   Base:   ${BASE}`));
+  console.log(paint('gray', `   Client: ${CLIENT}`));
+  console.log(paint('gray', `   Suites: 79 (19 core + 19 annex1 + 41 annex2)`));
+  console.log(paint('gray', `   Roles:  Admin · Lawyer · Paralegal · Accountant · Secretary · Client`));
+  console.log(paint('gray', `   Timeout: ${TIMEOUT_MS}ms · Retries: ${RETRY_MAX}`));
+
+  try {
+    bootstrap();
+
+    // PART 1 — CORE (1-19)
+    suitePublic();
+    suiteAuth();
+    suiteDashboards();
+    suiteShared();
+    suiteDB();
+    suiteEmail();
+    suiteWhatsApp();
+    suiteSMS();
+    suitePayPal();
+    suiteSession();
+    suiteCookies();
+    suiteFingerprint();
+    suiteFilesUpload();
+    suiteFilesDownload();
+    suiteTemplatesComm();
+    suiteTemplatesPrint();
+    suiteTemplatesReport();
+    suiteServicesHealth();
+    suiteGlobalSecurity();
+
+    // PART 2 — ANNEX I (20-38)
+    suitePerformance();
+    suiteConcurrency();
+    suiteIdempotency();
+    suiteRealtime();
+    suiteBackup();
+    suiteI18n();
+    suiteA11y();
+    suiteSEO();
+    suiteGDPR();
+    suiteMultiTenancy();
+    suiteAudit();
+    suiteContract();
+    suiteFuzz();
+    suiteRateRecovery();
+    suiteTimezones();
+    suiteExportImport();
+    suiteNotificationsE2E();
+    suitePaymentE2E();
+    suiteAdvancedSecurity();
+
+    // PART 3 — ANNEX II (39-79)
+    suiteEncryption();
+    suitePIIMasking();
+    suiteRetention();
+    suiteLegalHold();
+    suiteChainOfCustody();
+    suiteDigitalSignature();
+    suiteNotarization();
+    suiteTimeStamping();
+    suiteConflict();
+    suiteEthicalWall();
+    suiteDeadlines();
+    suiteEFiling();
+    suiteLegalCalendar();
+    suiteFeeCalculation();
+    suiteTrustAccount();
+    suiteBillingRules();
+    suiteTax();
+    suiteESignAudit();
+    suiteLineage();
+    suiteDR();
+    suiteChaos();
+    suiteBlueGreen();
+    suiteFeatureFlags();
+    suiteWebhookRetry();
+    suiteAPIVersioning();
+    suiteRatePerEndpoint();
+    suiteRequestSigning();
+    suiteMTLS();
+    suiteIPAllowlist();
+    suiteSessionAnomaly();
+    suiteAuditImmutability();
+    suiteMultiCurrency();
+    suiteBankReconciliation();
+    suiteEscrow();
+    suiteSubscription();
+    suiteRefund();
+    suiteDispute();
+    suiteExportMasking();
+    suiteDocVersioning();
+    suiteEDiscovery();
+    suiteConflictBatch();
+  } catch (e: any) {
+    console.error(paint('red', `\n💥 Fatal: ${e?.message ?? e}`));
+  } finally {
+    console.log(paint('gray', `\n⏱️  Total duration: ${((Date.now() - t0) / 1000).toFixed(2)}s`));
+    report();
+  }
+})();

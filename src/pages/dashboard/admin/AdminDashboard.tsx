@@ -153,6 +153,13 @@ export const AdminDashboard: React.FC = () => {
             <FileText className="w-3.5 h-3.5" />
             <span>{locale === 'ar' ? 'فاتورة جديدة' : 'New Invoice'}</span>
           </button>
+          <button
+            onClick={() => setCurrentView('pre_deployment_audit')}
+            className="px-3.5 py-2 text-xs font-bold text-rose-950 bg-rose-200 hover:bg-rose-100 border border-rose-300 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>{locale === 'ar' ? 'فحص ما قبل النشر' : 'Pre-Deployment Audit'}</span>
+          </button>
         </div>
       </div>
 

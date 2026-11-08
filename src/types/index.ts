@@ -78,6 +78,12 @@ export interface DocumentItem {
   uploadedByName: string;
   uploadedAt: string;
   url?: string;
+  isSigned?: boolean;
+  signedBy?: string;
+  signedAt?: string;
+  signatureHash?: string;
+  tsaTimestamp?: string;
+  signatureDataUrl?: string;
 }
 
 export interface Invoice {

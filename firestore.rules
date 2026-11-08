@@ -1,55 +1,55 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Connection test document
-    match /test/{docId} {
-      allow read, write: if true;
+
+    // --- Helper Functions ---
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function getRole() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function isAdmin() { return isSignedIn() && getRole() == 'ADMIN'; }
+    function isLawyer(caseId) {
+        return isSignedIn() && get(/databases/$(database)/documents/cases/$(caseId)).data.lawyerId == request.auth.uid;
     }
 
-    // Users collection
+    // --- Master Gate ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Users Collection ---
     match /users/{userId} {
-      allow read, write: if true;
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow update: if isSignedIn() && request.auth.uid == userId && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'preferences']);
     }
 
-    // Cases collection
+    // --- Cases Collection ---
     match /cases/{caseId} {
-      allow read, write: if true;
+      allow read: if isSignedIn() && (isAdmin() || resource.data.clientId == request.auth.uid || resource.data.lawyerId == request.auth.uid);
+      allow create: if isAdmin() || (isSignedIn() && getRole() == 'LAWYER');
+      allow update: if isAdmin() || isLawyer(caseId);
     }
 
-    // Clients collection
-    match /clients/{clientId} {
-      allow read, write: if true;
-    }
-
-    // Invoices collection
-    match /invoices/{invoiceId} {
-      allow read, write: if true;
-    }
-
-    // Appointments collection
-    match /appointments/{appointmentId} {
-      allow read, write: if true;
-    }
-
-    // Tasks collection
+    // --- Tasks Collection ---
     match /tasks/{taskId} {
-      allow read, write: if true;
+      allow read: if isSignedIn() && (isAdmin() || resource.data.assigneeId == request.auth.uid || isLawyer(resource.data.caseId));
+      allow create: if isSignedIn() && (isAdmin() || getRole() == 'LAWYER' || getRole() == 'PARALEGAL');
+      allow update: if isSignedIn() && (isAdmin() || resource.data.assigneeId == request.auth.uid || isLawyer(resource.data.caseId));
     }
 
-    // Documents collection
-    match /documents/{documentId} {
-      allow read, write: if true;
+    // --- Invoices Collection ---
+    match /invoices/{invoiceId} {
+      allow read: if isSignedIn() && (isAdmin() || getRole() == 'ACCOUNTANT' || resource.data.clientId == request.auth.uid);
+      allow create: if isAdmin() || getRole() == 'ACCOUNTANT';
     }
 
-    // Notifications collection
-    match /notifications/{notificationId} {
-      allow read, write: if true;
-    }
-
-    // Contact Messages (Public form submission + read/write)
-    match /contactMessages/{messageId} {
-      allow read, write: if true;
+    // --- AuditLogs Collection ---
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // System only
     }
   }
 }

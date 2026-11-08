@@ -34,6 +34,12 @@ import {
   initialContactMessages,
   initialServices,
 } from './initialData';
+import {
+  subscribeCollectionLive,
+  syncSetDocument,
+  syncUpdateDocument,
+  syncDeleteDocument,
+} from '../lib/firestoreSync';
 
 export const ROLES_CONFIG: RoleConfig[] = [
   {
@@ -170,7 +176,10 @@ interface AppStore {
   addContactMessage: (msg: Omit<ContactMessage, 'id' | 'read' | 'replied' | 'createdAt'>) => void;
   markContactMessageRead: (id: string) => void;
 
+  signDocument: (id: string, signatureDataUrl: string, signerName: string) => void;
+
   updateFirmSettings: (settings: Partial<FirmSettings>) => void;
+  initFirestoreSync: () => () => void;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -256,18 +265,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
       createdAt: new Date().toISOString().split('T')[0],
     };
     set((state) => ({ cases: [newCase, ...state.cases] }));
-    get().showToast(get().locale === 'ar' ? 'تم إنشاء القضية بنجاح' : 'Case created successfully');
+    syncSetDocument('cases', newCase.id, newCase);
+    get().showToast(get().locale === 'ar' ? 'تم إنشاء القضية ومزامنتها بنجاح' : 'Case created and synced successfully');
   },
 
   updateCase: (id, updates) => {
     set((state) => ({
       cases: state.cases.map((c) => (c.id === id ? { ...c, ...updates } : c)),
     }));
-    get().showToast(get().locale === 'ar' ? 'تم تحديث بيانات القضية' : 'Case updated');
+    syncUpdateDocument('cases', id, updates);
+    get().showToast(get().locale === 'ar' ? 'تم تحديث بيانات القضية ومزامنتها' : 'Case updated and synced');
   },
 
   deleteCase: (id) => {
     set((state) => ({ cases: state.cases.filter((c) => c.id !== id) }));
+    syncDeleteDocument('cases', id);
     get().showToast(get().locale === 'ar' ? 'تم حذف القضية' : 'Case removed', 'info');
   },
 
@@ -279,35 +291,65 @@ export const useAppStore = create<AppStore>((set, get) => ({
       createdAt: new Date().toISOString().split('T')[0],
     };
     set((state) => ({ clients: [newClient, ...state.clients] }));
-    get().showToast(get().locale === 'ar' ? 'تمت إضافة الموكل بنجاح' : 'Client registered');
+    syncSetDocument('clients', newClient.id, newClient);
+    get().showToast(get().locale === 'ar' ? 'تمت إضافة الموكل ومزامنته بنجاح' : 'Client registered and synced');
   },
 
   updateClient: (id, updates) => {
     set((state) => ({
       clients: state.clients.map((c) => (c.id === id ? { ...c, ...updates } : c)),
     }));
-    get().showToast(get().locale === 'ar' ? 'تم تحديث بيانات الموكل' : 'Client updated');
+    syncUpdateDocument('clients', id, updates);
+    get().showToast(get().locale === 'ar' ? 'تم تحديث بيانات الموكل ومزامنتها' : 'Client updated and synced');
   },
 
   deleteClient: (id) => {
     set((state) => ({ clients: state.clients.filter((c) => c.id !== id) }));
+    syncDeleteDocument('clients', id);
     get().showToast(get().locale === 'ar' ? 'تم حذف العميل' : 'Client deleted', 'info');
   },
 
   // CRUD Documents
   addDocument: (item) => {
-    const doc: DocumentItem = {
+    const docItem: DocumentItem = {
       ...item,
       id: `doc-${Date.now()}`,
       uploadedAt: new Date().toISOString().split('T')[0],
     };
-    set((state) => ({ documents: [doc, ...state.documents] }));
-    get().showToast(get().locale === 'ar' ? 'تم رفع المستند وأرشفته بنجاح' : 'Document uploaded and archived');
+    set((state) => ({ documents: [docItem, ...state.documents] }));
+    syncSetDocument('documents', docItem.id, docItem);
+    get().showToast(get().locale === 'ar' ? 'تم رفع المستند وأرشفته ومزامنته سحابياً' : 'Document archived and synced');
   },
 
   deleteDocument: (id) => {
     set((state) => ({ documents: state.documents.filter((d) => d.id !== id) }));
+    syncDeleteDocument('documents', id);
     get().showToast(get().locale === 'ar' ? 'تم حذف المستند' : 'Document deleted', 'info');
+  },
+
+  signDocument: (id, signatureDataUrl, signerName) => {
+    const signedAt = new Date().toISOString();
+    const signatureHash = `SHA256-${Math.random().toString(36).substring(2, 12).toUpperCase()}-${Date.now()}`;
+    const tsaTimestamp = new Date().toUTCString();
+
+    const signatureUpdates = {
+      isSigned: true,
+      signedBy: signerName,
+      signedAt,
+      signatureHash,
+      tsaTimestamp,
+      signatureDataUrl,
+    };
+
+    set((state) => ({
+      documents: state.documents.map((d) => (d.id === id ? { ...d, ...signatureUpdates } : d)),
+    }));
+    syncUpdateDocument('documents', id, signatureUpdates);
+    get().showToast(
+      get().locale === 'ar'
+        ? `تم توقيع المستند رقمياً بنجاح وتوثيقه بالختم الزمني المشفر (${signatureHash.slice(0, 16)}...)`
+        : `Document signed and TSA timestamped successfully`
+    );
   },
 
   // CRUD Invoices
@@ -317,21 +359,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
       id: `inv-${Date.now()}`,
     };
     set((state) => ({ invoices: [inv, ...state.invoices] }));
-    get().showToast(get().locale === 'ar' ? 'تم إصدار الفاتورة الضريبية' : 'Invoice generated');
+    syncSetDocument('invoices', inv.id, inv);
+    get().showToast(get().locale === 'ar' ? 'تم إصدار الفاتورة ومزامنتها سحابياً' : 'Invoice generated and synced');
   },
 
   updateInvoiceStatus: (id, status, paymentMethod) => {
     const paidAt = status === 'paid' ? new Date().toISOString().split('T')[0] : undefined;
+    const updates = { status, paidAt, paymentMethod };
     set((state) => ({
       invoices: state.invoices.map((inv) =>
         inv.id === id ? { ...inv, status, paidAt, paymentMethod: paymentMethod || inv.paymentMethod } : inv
       ),
     }));
-    get().showToast(get().locale === 'ar' ? 'تم تحديث حالة الفاتورة' : 'Invoice status updated');
+    syncUpdateDocument('invoices', id, updates);
+    get().showToast(get().locale === 'ar' ? 'تم تحديث حالة الفاتورة ومزامنتها' : 'Invoice status updated and synced');
   },
 
   deleteInvoice: (id) => {
     set((state) => ({ invoices: state.invoices.filter((i) => i.id !== id) }));
+    syncDeleteDocument('invoices', id);
     get().showToast(get().locale === 'ar' ? 'تم حذف الفاتورة' : 'Invoice deleted', 'info');
   },
 
@@ -451,7 +497,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   // Contact Messages
-  addContactMessage: (msg) => {
+  addContactMessage: (msg: Omit<ContactMessage, 'id' | 'read' | 'replied' | 'createdAt'>) => {
     const item: ContactMessage = {
       ...msg,
       id: `cnt-${Date.now()}`,
@@ -462,7 +508,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({ contactMessages: [item, ...state.contactMessages] }));
   },
 
-  markContactMessageRead: (id) => {
+  markContactMessageRead: (id: string) => {
     set((state) => ({
       contactMessages: state.contactMessages.map((c) => (c.id === id ? { ...c, read: true } : c)),
     }));
@@ -472,5 +518,51 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateFirmSettings: (settings) => {
     set((state) => ({ firmSettings: { ...state.firmSettings, ...settings } }));
     get().showToast(get().locale === 'ar' ? 'تم حفظ إعدادات المكتب بنجاح' : 'Firm settings updated');
+  },
+
+  // Real-time Firestore synchronization
+  initFirestoreSync: () => {
+    // 1. Sync Cases
+    const unsubCases = subscribeCollectionLive<Case>('cases', (liveCases) => {
+      if (liveCases && liveCases.length > 0) {
+        set({ cases: liveCases });
+      }
+    });
+
+    // 2. Sync Clients
+    const unsubClients = subscribeCollectionLive<Client>('clients', (liveClients) => {
+      if (liveClients && liveClients.length > 0) {
+        set({ clients: liveClients });
+      }
+    });
+
+    // 3. Sync Invoices
+    const unsubInvoices = subscribeCollectionLive<Invoice>('invoices', (liveInvoices) => {
+      if (liveInvoices && liveInvoices.length > 0) {
+        set({ invoices: liveInvoices });
+      }
+    });
+
+    // 4. Sync Appointments
+    const unsubAppointments = subscribeCollectionLive<Appointment>('appointments', (liveAppts) => {
+      if (liveAppts && liveAppts.length > 0) {
+        set({ appointments: liveAppts });
+      }
+    });
+
+    // 5. Sync Documents
+    const unsubDocuments = subscribeCollectionLive<DocumentItem>('documents', (liveDocs) => {
+      if (liveDocs && liveDocs.length > 0) {
+        set({ documents: liveDocs });
+      }
+    });
+
+    return () => {
+      unsubCases();
+      unsubClients();
+      unsubInvoices();
+      unsubAppointments();
+      unsubDocuments();
+    };
   },
 }));

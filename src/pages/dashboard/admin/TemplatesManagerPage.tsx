@@ -24,6 +24,7 @@ import {
   Loader2,
   X
 } from 'lucide-react';
+import { TemplatesDashboardPage } from './templates/TemplatesDashboardPage';
 
 interface NotificationTemplate {
   id: string;
@@ -206,19 +207,47 @@ export const TemplatesManagerPage: React.FC = () => {
           </p>
         </div>
 
-        {activeTab === 'list' && (
-          <button
-            type="button"
-            onClick={handleOpenNew}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white dark:bg-amber-400 dark:text-slate-950 font-bold rounded-xl text-xs hover:bg-slate-800 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>قالب جديد</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('list')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                activeTab === 'list' || activeTab === 'editor'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-500'
+              }`}
+            >
+              قوالب الإشعارات (4 قنوات)
+            </button>
+            <button
+              onClick={() => setActiveTab('studio' as any)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+                activeTab === ('studio' as any)
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-500'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-amber-500" />
+              <span>استوديو العقود والـ PDF</span>
+            </button>
+          </div>
+
+          {activeTab === 'list' && (
+            <button
+              type="button"
+              onClick={handleOpenNew}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white dark:bg-amber-400 dark:text-slate-950 font-bold rounded-xl text-xs hover:bg-slate-800 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>قالب جديد</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {activeTab === 'list' ? (
+      {activeTab === ('studio' as any) ? (
+        <TemplatesDashboardPage />
+      ) : activeTab === 'list' ? (
         <div className="space-y-4">
           {/* Filters Bar */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">

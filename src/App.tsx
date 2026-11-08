@@ -79,13 +79,15 @@ export default function App() {
   // Initialize Auth & Detect URL routes on start + Firebase Seed
   useEffect(() => {
     async function init() {
-      // Test and seed Firestore collections
+      // Test and seed Firestore collections + Subscribe to Realtime Updates
       try {
         await testFirebaseConnection();
         await seedFirestoreInitialCollections();
       } catch (err) {
         console.warn('Firebase initial seed check:', err);
       }
+
+      const unsubSync = useAppStore.getState().initFirestoreSync();
 
       // Check query params or pathname for direct links
       if (typeof window !== 'undefined') {
